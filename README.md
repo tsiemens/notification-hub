@@ -13,5 +13,7 @@ endpoints are registered as stubs for later phase-2 work.
 Run the tests with:
 
 ```sh
-uv run python -m unittest discover -s tests
+uv run ruff check .
+uv run ruff format --check .
+uv run pytest
 ```

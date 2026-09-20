@@ -128,7 +128,8 @@ class NotificationRepository:
                     """INSERT INTO notifications(
                         id, domain_id, sender, summary, message_markdown, details_markdown,
                         tags_json, priority, source_created_at, created_at, updated_at, read_at,
-                        response_state, cancelled_at, cancellation_reason, version, create_fingerprint
+                        response_state, cancelled_at, cancellation_reason, version,
+                        create_fingerprint
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, NULL, 1, ?)""",
                     (
                         request.id,
