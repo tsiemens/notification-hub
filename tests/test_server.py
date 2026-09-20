@@ -7,7 +7,9 @@ import logging
 import threading
 import time
 import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest.mock import Mock
 from urllib.parse import urlencode
 
 import pytest
@@ -18,10 +20,19 @@ from notification_hub.config import (
     AuthConfig,
     ConfigurationError,
     LimitsConfig,
+    RetentionConfig,
     ServerConfig,
     SigningKey,
 )
+from notification_hub.domain import (
+    CreateNotification,
+    ResponseOption,
+    ResponseState,
+    format_timestamp,
+)
 from notification_hub.server import create_app
+from notification_hub.server.app import _CleanupWorker
+from notification_hub.storage import Database, NotificationRepository
 
 
 @pytest.fixture
@@ -46,7 +57,10 @@ def app(tmp_path: Path):
     )
     result = create_app(config)
     result.extensions["test_private_key"] = private_key
-    return result
+    yield result
+    worker = result.extensions.get("notification_hub_cleanup_worker")
+    if worker is not None:
+        worker.stop(join=True)
 
 
 @pytest.fixture
@@ -408,6 +422,55 @@ def test_health_initializes_and_checks_the_database(client) -> None:
     assert response.get_json() == {"status": "ok"}
 
 
+def test_startup_cleanup_expires_pending_notifications(tmp_path: Path) -> None:
+    database = Database(tmp_path / "startup-cleanup.sqlite3")
+    database.initialize()
+    repository = NotificationRepository(database)
+    created = repository.create(
+        CreateNotification(
+            str(uuid.uuid4()),
+            "build-container",
+            "codex",
+            "Stale approval",
+            response_options=(ResponseOption("approve", "Approve"),),
+        ),
+        now=datetime.now(UTC) - timedelta(days=2),
+    )
+
+    test_app = create_app(
+        ServerConfig(database=database.path, retention=RetentionConfig(max_pending_days=1)),
+        repository=repository,
+    )
+    try:
+        assert repository.get(created.notification.id).response_state is ResponseState.EXPIRED
+    finally:
+        test_app.extensions["notification_hub_cleanup_worker"].stop(join=True)
+
+
+def test_cleanup_worker_repeats_after_startup() -> None:
+    repeated = threading.Event()
+    repository = Mock()
+
+    def cleanup(_retention) -> None:
+        if repository.cleanup.call_count >= 2:
+            repeated.set()
+
+    repository.cleanup.side_effect = cleanup
+    worker = _CleanupWorker(
+        RetentionConfig(),
+        threading.Condition(),
+        logging.getLogger(__name__),
+        interval_seconds=0.01,
+    )
+    worker.start(repository)
+    try:
+        assert repeated.wait(1)
+    finally:
+        worker.stop(join=True)
+
+    assert repository.cleanup.call_count >= 2
+
+
 def test_create_retry_is_idempotent(client) -> None:
     payload = notification()
     first = client.post("/api/v1/notifications", json=payload)
@@ -732,6 +795,56 @@ def test_waiting_events_wakes_after_create(app) -> None:
 
     assert not waiter.is_alive()
     assert result[0]["events"][0]["type"] == "notification.created"
+
+
+def test_cleanup_expiry_wakes_outcome_and_event_waiters(app, client) -> None:
+    payload = notification()
+    created = client.post("/api/v1/notifications", json=payload).get_json()
+    repository = app.extensions["notification_hub_repository"]
+    with repository.database.connection() as connection:
+        connection.execute(
+            "UPDATE notifications SET created_at = ? WHERE id = ?",
+            (format_timestamp(datetime.now(UTC) - timedelta(days=8)), payload["id"]),
+        )
+
+    started = threading.Barrier(3)
+    outcome_result: list[dict[str, object]] = []
+    event_result: list[dict[str, object]] = []
+
+    def wait_for_outcome() -> None:
+        with app.test_client() as waiting_client:
+            started.wait()
+            response = waiting_client.get(
+                f"/api/v1/notifications/{payload['id']}/outcome?wait_seconds=2"
+            )
+            outcome_result.append(response.get_json())
+
+    def wait_for_event() -> None:
+        with app.test_client() as waiting_client:
+            started.wait()
+            response = signed_request(
+                waiting_client,
+                "GET",
+                f"/api/v1/events?after={created['event_seq']}&wait_seconds=2",
+            )
+            event_result.append(response.get_json())
+
+    outcome_waiter = threading.Thread(target=wait_for_outcome)
+    event_waiter = threading.Thread(target=wait_for_event)
+    outcome_waiter.start()
+    event_waiter.start()
+    started.wait()
+    time.sleep(0.05)
+
+    app.extensions["notification_hub_cleanup_worker"].run_once()
+    outcome_waiter.join(1)
+    event_waiter.join(1)
+
+    assert not outcome_waiter.is_alive()
+    assert not event_waiter.is_alive()
+    assert outcome_result[0]["state"] == "expired"
+    assert event_result[0]["events"][0]["type"] == "notification.updated"
+    assert event_result[0]["events"][0]["notification"]["response_state"] == "expired"
 
 
 def test_events_reports_an_expired_cursor(app, client) -> None:

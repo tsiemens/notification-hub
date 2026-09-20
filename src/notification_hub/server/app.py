@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import threading
 import time
+import weakref
 from collections.abc import Callable, Mapping
+from logging import Logger
 from typing import Any
 
 from flask import Flask, Response, g, jsonify, request
@@ -13,7 +15,7 @@ from werkzeug.exceptions import (
     UnsupportedMediaType,
 )
 
-from notification_hub.config import ServerConfig
+from notification_hub.config import RetentionConfig, ServerConfig
 from notification_hub.domain import (
     CreateNotification,
     ResponseOption,
@@ -42,6 +44,68 @@ from notification_hub.storage import (
 )
 
 JsonObject = Mapping[str, Any]
+
+_CLEANUP_INTERVAL_SECONDS = 60 * 60
+
+
+class _CleanupWorker:
+    """Run repository retention without tying it to request traffic."""
+
+    def __init__(
+        self,
+        retention: RetentionConfig,
+        state_changed: threading.Condition,
+        logger: Logger,
+        *,
+        interval_seconds: float = _CLEANUP_INTERVAL_SECONDS,
+    ) -> None:
+        self._retention = retention
+        self._state_changed = state_changed
+        self._logger = logger
+        self._interval_seconds = interval_seconds
+        self._start_lock = threading.Lock()
+        self._stop_event = threading.Event()
+        self._repository: NotificationRepository | None = None
+        self._thread: threading.Thread | None = None
+
+    def start(self, repository: NotificationRepository) -> None:
+        """Run startup cleanup, then start the hourly maintenance thread once."""
+        with self._start_lock:
+            if self._thread is not None:
+                return
+            self._repository = repository
+            self.run_once()
+            self._thread = threading.Thread(
+                target=self._run,
+                name="notification-hub-cleanup",
+                daemon=True,
+            )
+            self._thread.start()
+
+    def run_once(self) -> None:
+        repository = self._repository
+        if repository is None:
+            raise RuntimeError("cleanup worker has not been started")
+        repository.cleanup(self._retention)
+        # Cleanup can expire pending outcomes, append events, or invalidate an
+        # event cursor. Wake both kinds of waiter so they immediately re-read.
+        with self._state_changed:
+            self._state_changed.notify_all()
+
+    def stop(self, *, join: bool = False) -> None:
+        self._stop_event.set()
+        thread = self._thread
+        if join and thread is not None and thread is not threading.current_thread():
+            thread.join()
+
+    def _run(self) -> None:
+        while not self._stop_event.wait(self._interval_seconds):
+            try:
+                self.run_once()
+            except Exception:
+                # A transient cleanup failure must not permanently disable
+                # retention. The next hourly iteration retries it.
+                self._logger.exception("Notification retention cleanup failed")
 
 
 def _error(
@@ -228,23 +292,26 @@ def create_app(
 
     init_lock = threading.Lock()
     state_changed = threading.Condition()
+    cleanup_worker = _CleanupWorker(config.retention, state_changed, app.logger)
+    app.extensions["notification_hub_cleanup_worker"] = cleanup_worker
+    weakref.finalize(app, cleanup_worker.stop)
     if repository is not None:
         app.extensions["notification_hub_repository"] = repository
 
     def get_repository() -> NotificationRepository:
         existing = app.extensions.get("notification_hub_repository")
-        if existing is not None:
-            return existing
-        with init_lock:
-            existing = app.extensions.get("notification_hub_repository")
-            if existing is None:
-                database = Database(
-                    config.database, strict_permissions=config.strict_database_permissions
-                )
-                database.initialize()
-                existing = NotificationRepository(database)
-                app.extensions["notification_hub_database"] = database
-                app.extensions["notification_hub_repository"] = existing
+        if existing is None:
+            with init_lock:
+                existing = app.extensions.get("notification_hub_repository")
+                if existing is None:
+                    database = Database(
+                        config.database, strict_permissions=config.strict_database_permissions
+                    )
+                    database.initialize()
+                    existing = NotificationRepository(database)
+                    app.extensions["notification_hub_database"] = database
+                    app.extensions["notification_hub_repository"] = existing
+        cleanup_worker.start(existing)
         return existing
 
     def health() -> tuple[Response, int]:
@@ -608,5 +675,11 @@ def create_app(
                 request_id,
             )
         return response
+
+    if repository is not None:
+        # An injected repository is already active, so application creation is
+        # its startup boundary. Default storage remains intentionally lazy until
+        # the first request needs it.
+        cleanup_worker.start(repository)
 
     return app
