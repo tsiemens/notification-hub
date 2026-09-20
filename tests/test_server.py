@@ -71,7 +71,9 @@ def test_complete_v1_route_surface_is_registered() -> None:
 
 
 def test_stub_uses_error_envelope_and_echoes_request_id(client) -> None:
-    response = client.get("/api/v1/notifications/example", headers={"X-Request-ID": "request-123"})
+    response = client.post(
+        "/api/v1/notifications/example/response", headers={"X-Request-ID": "request-123"}
+    )
     assert response.status_code == 501
     assert response.content_type == "application/json"
     assert response.headers["X-Request-ID"] == "request-123"
@@ -79,7 +81,7 @@ def test_stub_uses_error_envelope_and_echoes_request_id(client) -> None:
         "error": {
             "code": "not_implemented",
             "message": "This API endpoint has not been implemented",
-            "details": {"endpoint": "notification_get"},
+            "details": {"endpoint": "notification_response"},
         }
     }
 
@@ -178,3 +180,122 @@ def test_create_limits_return_rate_limited(tmp_path: Path) -> None:
     response = client.post("/api/v1/notifications", json=notification())
     assert response.status_code == 429
     assert response.get_json()["error"]["code"] == "rate_limited"
+
+
+def test_read_notification_list_filters_and_paginates(client) -> None:
+    first = notification(options=False)
+    first["domain"] = "alpha"
+    first["sender"] = "one"
+    first["tags"] = ["shared", "first"]
+    second = notification()
+    second["domain"] = "beta"
+    second["sender"] = "two"
+    second["tags"] = ["shared", "second"]
+    client.post("/api/v1/notifications", json=first)
+    client.post("/api/v1/notifications", json=second)
+
+    page_one = client.get("/api/v1/notifications?order=asc&limit=1").get_json()
+    assert len(page_one["items"]) == 1
+    assert page_one["next_cursor"] is not None
+    page_two = client.get(
+        "/api/v1/notifications",
+        query_string={"order": "asc", "limit": 1, "cursor": page_one["next_cursor"]},
+    ).get_json()
+    assert len(page_two["items"]) == 1
+    assert page_two["next_cursor"] is None
+    assert {page_one["items"][0]["id"], page_two["items"][0]["id"]} == {
+        first["id"],
+        second["id"],
+    }
+
+    filtered = client.get(
+        "/api/v1/notifications?domain=beta&sender=two&unread=true&response_state=pending"
+        "&tag=shared&tag=second"
+    )
+    assert [item["id"] for item in filtered.get_json()["items"]] == [second["id"]]
+
+    cursor_mismatch = client.get(
+        "/api/v1/notifications",
+        query_string={"order": "desc", "limit": 1, "cursor": page_one["next_cursor"]},
+    )
+    assert cursor_mismatch.status_code == 422
+
+
+def test_get_domains_snapshot_and_events(client) -> None:
+    payload = notification()
+    created = client.post("/api/v1/notifications", json=payload).get_json()
+
+    fetched = client.get(f"/api/v1/notifications/{payload['id']}")
+    assert fetched.status_code == 200
+    assert fetched.get_json()["notification"] == created["notification"]
+
+    domains = client.get("/api/v1/domains").get_json()["items"]
+    assert domains[0]["name"] == payload["domain"]
+    assert domains[0]["notification_count"] == 1
+
+    snapshot = client.get("/api/v1/snapshot").get_json()
+    assert snapshot["sequence"] == created["event_seq"]
+    assert snapshot["notifications"] == [created["notification"]]
+    assert snapshot["domains"] == domains
+
+    events = client.get("/api/v1/events?after=0&limit=1").get_json()
+    assert events == {
+        "events": [
+            {
+                "seq": created["event_seq"],
+                "type": "notification.created",
+                "occurred_at": created["notification"]["created_at"],
+                "notification": created["notification"],
+            }
+        ],
+        "last_sequence": created["event_seq"],
+        "has_more": False,
+    }
+
+
+def test_read_routes_reject_unknown_or_invalid_query_values(client) -> None:
+    assert client.get("/api/v1/domains?extra=true").status_code == 422
+    assert client.get("/api/v1/events?after=-1").status_code == 422
+    assert client.get("/api/v1/events?wait_seconds=01").status_code == 422
+    assert client.get("/api/v1/notifications?unread=yes").status_code == 422
+    assert client.get("/api/v1/notifications?created_after=yesterday").status_code == 422
+
+
+def test_waiting_events_wakes_after_create(app) -> None:
+    started = threading.Event()
+    result: list[dict[str, object]] = []
+
+    def wait_for_event() -> None:
+        with app.test_client() as waiting_client:
+            started.set()
+            response = waiting_client.get("/api/v1/events?after=0&wait_seconds=2")
+            result.append(response.get_json())
+
+    waiter = threading.Thread(target=wait_for_event)
+    waiter.start()
+    assert started.wait(1)
+    time.sleep(0.05)
+    with app.test_client() as creating_client:
+        creating_client.post("/api/v1/notifications", json=notification())
+    waiter.join(1)
+
+    assert not waiter.is_alive()
+    assert result[0]["events"][0]["type"] == "notification.created"
+
+
+def test_events_reports_an_expired_cursor(app, client) -> None:
+    first = client.post("/api/v1/notifications", json=notification()).get_json()
+    client.post("/api/v1/notifications", json=notification())
+    repository = app.extensions["notification_hub_repository"]
+    with repository.database.connection() as connection:
+        connection.execute("DELETE FROM events WHERE seq = ?", (first["event_seq"],))
+
+    response = client.get("/api/v1/events?after=0")
+    assert response.status_code == 409
+    assert response.get_json() == {
+        "error": {
+            "code": "cursor_expired",
+            "message": "event cursor predates retained history",
+            "details": {"reset_required": True},
+        }
+    }

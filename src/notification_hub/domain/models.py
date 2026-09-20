@@ -306,3 +306,6 @@ class DomainSummary:
     unread_count: int
     pending_response_count: int
     latest_summary: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)

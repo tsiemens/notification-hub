@@ -19,11 +19,14 @@ from notification_hub.domain import (
     ResponseOption,
     ResponseState,
     ValidationError,
+    parse_timestamp,
 )
 from notification_hub.storage import (
+    CursorExpiredError,
     Database,
     IdempotencyConflictError,
     NotFoundError,
+    NotificationQuery,
     NotificationRepository,
     PendingLimitError,
     RateLimitError,
@@ -143,13 +146,86 @@ def _wait_seconds() -> int:
     return value
 
 
+def _single_query_value(name: str, default: str | None = None) -> str | None:
+    values = request.args.getlist(name)
+    if len(values) > 1:
+        raise ValidationError(f"{name} may be supplied only once")
+    return values[0] if values else default
+
+
+def _query_integer(name: str, default: int, minimum: int, maximum: int) -> int:
+    raw_value = _single_query_value(name, str(default))
+    assert raw_value is not None
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise ValidationError(
+            f"{name} must be an integer from {minimum} through {maximum}"
+        ) from exc
+    if str(value) != raw_value or not minimum <= value <= maximum:
+        raise ValidationError(f"{name} must be an integer from {minimum} through {maximum}")
+    return value
+
+
+def _reject_unknown_query(allowed: set[str]) -> None:
+    unknown = set(request.args) - allowed
+    if unknown:
+        raise ValidationError(f"unknown query parameter(s): {', '.join(sorted(unknown))}")
+
+
+def _notification_query() -> NotificationQuery:
+    allowed = {
+        "domain",
+        "sender",
+        "unread",
+        "response_state",
+        "tag",
+        "created_before",
+        "created_after",
+        "order",
+        "limit",
+        "cursor",
+    }
+    _reject_unknown_query(allowed)
+    unread_value = _single_query_value("unread")
+    if unread_value not in {None, "true", "false"}:
+        raise ValidationError("unread must be true or false")
+    state_values: list[ResponseState] = []
+    for value in request.args.getlist("response_state"):
+        try:
+            state_values.append(ResponseState(value))
+        except ValueError as exc:
+            raise ValidationError(f"invalid response_state: {value!r}") from exc
+    timestamps: dict[str, str | None] = {}
+    for name in ("created_before", "created_after"):
+        value = _single_query_value(name)
+        if value is not None:
+            parse_timestamp(value, require_canonical=True)
+        timestamps[name] = value
+    order = _single_query_value("order", "desc")
+    if order not in {"asc", "desc"}:
+        raise ValidationError("order must be asc or desc")
+    return NotificationQuery(
+        domains=tuple(request.args.getlist("domain")),
+        senders=tuple(request.args.getlist("sender")),
+        unread=None if unread_value is None else unread_value == "true",
+        response_states=tuple(state_values),
+        tags=tuple(request.args.getlist("tag")),
+        created_before=timestamps["created_before"],
+        created_after=timestamps["created_after"],
+        order=order,
+        limit=_query_integer("limit", 100, 1, 500),
+        cursor=_single_query_value("cursor"),
+    )
+
+
 def create_app(
     config: ServerConfig | None = None, *, repository: NotificationRepository | None = None
 ) -> Flask:
     """Create the HTTP application.
 
-    Producer endpoints are implemented without authentication. Signed hub/client
-    endpoints remain explicit stubs until their authentication boundary is added.
+    Producer endpoints are implemented without authentication. Hub/client routes
+    are being implemented ahead of their signed authentication boundary.
     The database is opened lazily so route inspection does not touch the default
     user data directory.
     """
@@ -243,6 +319,51 @@ def create_app(
             200,
         )
 
+    def notifications_list() -> tuple[Response, int]:
+        page = get_repository().query_notifications(_notification_query())
+        return jsonify(
+            items=[item.to_dict() for item in page.items], next_cursor=page.next_cursor
+        ), 200
+
+    def notification_get(notification_id: str) -> tuple[Response, int]:
+        _reject_unknown_query(set())
+        return jsonify(notification=get_repository().get(notification_id).to_dict()), 200
+
+    def domains() -> tuple[Response, int]:
+        _reject_unknown_query(set())
+        return jsonify(items=[item.to_dict() for item in get_repository().domains()]), 200
+
+    def snapshot() -> tuple[Response, int]:
+        _reject_unknown_query(set())
+        value = get_repository().snapshot()
+        return jsonify(
+            sequence=value.sequence,
+            generated_at=value.generated_at,
+            domains=[item.to_dict() for item in value.domains],
+            notifications=[item.to_dict() for item in value.notifications],
+        ), 200
+
+    def events() -> tuple[Response, int]:
+        _reject_unknown_query({"after", "wait_seconds", "limit"})
+        after = _query_integer("after", 0, 0, 2**63 - 1)
+        wait_seconds = _query_integer("wait_seconds", 0, 0, 30)
+        limit = _query_integer("limit", 200, 1, 500)
+        deadline = time.monotonic() + wait_seconds
+        with state_changed:
+            while True:
+                page = get_repository().event_page(after, limit)
+                if page.events or page.has_more:
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                state_changed.wait(remaining)
+        return jsonify(
+            events=page.events,
+            last_sequence=page.last_sequence,
+            has_more=page.has_more,
+        ), 200
+
     implemented_routes: tuple[tuple[str, str, tuple[str, ...], Callable[..., Any]], ...] = (
         ("health", "/healthz", ("GET",), health),
         ("notifications_create", "/api/v1/notifications", ("POST",), notifications_create),
@@ -258,11 +379,19 @@ def create_app(
             ("GET",),
             notification_outcome,
         ),
+        ("notifications_list", "/api/v1/notifications", ("GET",), notifications_list),
+        (
+            "notification_get",
+            "/api/v1/notifications/<notification_id>",
+            ("GET",),
+            notification_get,
+        ),
+        ("domains", "/api/v1/domains", ("GET",), domains),
+        ("snapshot", "/api/v1/snapshot", ("GET",), snapshot),
+        ("events", "/api/v1/events", ("GET",), events),
     )
     stub_routes: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         ("auth_nonces", "/api/v1/auth/nonces", ("POST",)),
-        ("notifications_list", "/api/v1/notifications", ("GET",)),
-        ("notification_get", "/api/v1/notifications/<notification_id>", ("GET",)),
         (
             "notification_response",
             "/api/v1/notifications/<notification_id>/response",
@@ -274,9 +403,6 @@ def create_app(
             ("PATCH",),
         ),
         ("read_state", "/api/v1/read-state", ("POST",)),
-        ("domains", "/api/v1/domains", ("GET",)),
-        ("snapshot", "/api/v1/snapshot", ("GET",)),
-        ("events", "/api/v1/events", ("GET",)),
     )
     for endpoint, rule, methods, view in implemented_routes:
         app.add_url_rule(rule, endpoint, view, methods=list(methods))
@@ -312,6 +438,10 @@ def create_app(
             if isinstance(body, dict) and isinstance(body.get("id"), str):
                 details["notification_id"] = body["id"]
         return _error("idempotency_conflict", str(error), 409, details)
+
+    @app.errorhandler(CursorExpiredError)
+    def cursor_expired(error: CursorExpiredError) -> tuple[Response, int]:
+        return _error("cursor_expired", str(error), 409, {"reset_required": True})
 
     @app.errorhandler(StateConflictError)
     def state_conflict(error: StateConflictError) -> tuple[Response, int]:

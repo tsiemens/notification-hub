@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import sqlite3
 from dataclasses import dataclass
@@ -48,6 +50,10 @@ class PendingLimitError(RateLimitError):
     pass
 
 
+class CursorExpiredError(RepositoryError):
+    pass
+
+
 class AlreadyAnsweredError(StateConflictError):
     def __init__(self, notification: Notification) -> None:
         super().__init__("the notification already has a response")
@@ -68,6 +74,41 @@ class CleanupResult:
     deleted_domains: int = 0
     deleted_events: int = 0
     deleted_nonce_batches: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class NotificationQuery:
+    domains: tuple[str, ...] = ()
+    senders: tuple[str, ...] = ()
+    unread: bool | None = None
+    response_states: tuple[ResponseState, ...] = ()
+    tags: tuple[str, ...] = ()
+    created_before: str | None = None
+    created_after: str | None = None
+    order: str = "desc"
+    limit: int = 100
+    cursor: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class NotificationPage:
+    items: list[Notification]
+    next_cursor: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class Snapshot:
+    sequence: int
+    generated_at: str
+    domains: list[DomainSummary]
+    notifications: list[Notification]
+
+
+@dataclass(frozen=True, slots=True)
+class EventPage:
+    events: list[dict[str, Any]]
+    last_sequence: int
+    has_more: bool
 
 
 class NotificationRepository:
@@ -188,22 +229,107 @@ class NotificationRepository:
             ).fetchall()
             return [self._get(connection, row["id"]) for row in ids]
 
+    def query_notifications(self, query: NotificationQuery) -> NotificationPage:
+        """Return a stable keyset-paginated page matching the client filters."""
+        if query.order not in {"asc", "desc"}:
+            raise ValidationError("order must be asc or desc")
+        if not 1 <= query.limit <= 500:
+            raise ValidationError("limit must be an integer from 1 through 500")
+
+        filter_key = self._query_filter_key(query)
+        cursor_key = self._decode_cursor(query.cursor, query.order, filter_key)
+        where: list[str] = []
+        parameters: list[Any] = []
+
+        def repeated_filter(column: str, values: tuple[Any, ...]) -> None:
+            if values:
+                placeholders = ",".join("?" for _ in values)
+                where.append(f"{column} IN ({placeholders})")
+                parameters.extend(
+                    value.value if isinstance(value, ResponseState) else value for value in values
+                )
+
+        repeated_filter("d.name", query.domains)
+        repeated_filter("n.sender", query.senders)
+        repeated_filter("n.response_state", query.response_states)
+        if query.unread is not None:
+            where.append("n.read_at IS NULL" if query.unread else "n.read_at IS NOT NULL")
+        if query.created_before is not None:
+            where.append("n.created_at < ?")
+            parameters.append(query.created_before)
+        if query.created_after is not None:
+            where.append("n.created_at > ?")
+            parameters.append(query.created_after)
+        for tag in query.tags:
+            where.append("EXISTS (SELECT 1 FROM json_each(n.tags_json) WHERE json_each.value = ?)")
+            parameters.append(tag)
+        if cursor_key is not None:
+            comparison = ">" if query.order == "asc" else "<"
+            where.append(f"(n.created_at, n.id) {comparison} (?, ?)")
+            parameters.extend(cursor_key)
+
+        direction = "ASC" if query.order == "asc" else "DESC"
+        sql = "SELECT n.id, n.created_at FROM notifications n JOIN domains d ON d.id = n.domain_id"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += f" ORDER BY n.created_at {direction}, n.id {direction} LIMIT ?"
+        parameters.append(query.limit + 1)
+
+        with self.database.connection() as connection:
+            rows = connection.execute(sql, parameters).fetchall()
+            page_rows = rows[: query.limit]
+            items = [self._get(connection, row["id"]) for row in page_rows]
+            next_cursor = None
+            if len(rows) > query.limit:
+                last = page_rows[-1]
+                next_cursor = self._encode_cursor(
+                    query.order, filter_key, last["created_at"], last["id"]
+                )
+            return NotificationPage(items, next_cursor)
+
     def domains(self) -> list[DomainSummary]:
         with self.database.connection() as connection:
+            return self._domains(connection)
+
+    def snapshot(self, *, now: datetime | None = None) -> Snapshot:
+        """Read the sequence and all UI state from one SQLite snapshot."""
+        generated_at = format_timestamp(now or datetime.now(UTC))
+        with self.database.connection() as connection:
+            connection.execute("BEGIN")
+            try:
+                sequence = self._last_allocated_sequence(connection)
+                domains = self._domains(connection)
+                ids = connection.execute(
+                    "SELECT id FROM notifications ORDER BY created_at DESC, id DESC"
+                ).fetchall()
+                notifications = [self._get(connection, row["id"]) for row in ids]
+                connection.commit()
+                return Snapshot(sequence, generated_at, domains, notifications)
+            except Exception:
+                connection.rollback()
+                raise
+
+    def event_page(self, after: int, limit: int) -> EventPage:
+        if after < 0:
+            raise ValidationError("after must be a non-negative integer")
+        if not 1 <= limit <= 500:
+            raise ValidationError("limit must be an integer from 1 through 500")
+        with self.database.connection() as connection:
+            last_allocated = self._last_allocated_sequence(connection)
+            oldest = connection.execute("SELECT min(seq) FROM events").fetchone()[0]
+            if (oldest is not None and after < oldest - 1) or (
+                oldest is None and after < last_allocated
+            ):
+                raise CursorExpiredError("event cursor predates retained history")
             rows = connection.execute(
-                """SELECT d.name, d.last_activity_at,
-                       count(n.id) AS notification_count,
-                       sum(CASE WHEN n.read_at IS NULL THEN 1 ELSE 0 END) AS unread_count,
-                       sum(CASE WHEN n.response_state = 'pending' THEN 1 ELSE 0 END)
-                           AS pending_response_count,
-                       (SELECT newest.summary FROM notifications newest
-                        WHERE newest.domain_id = d.id
-                        ORDER BY newest.created_at DESC, newest.id DESC LIMIT 1) AS latest_summary
-                   FROM domains d JOIN notifications n ON n.domain_id = d.id
-                   GROUP BY d.id
-                   ORDER BY d.last_activity_at DESC, d.name ASC"""
+                "SELECT seq, event_type, occurred_at, payload_json FROM events "
+                "WHERE seq > ? ORDER BY seq LIMIT ?",
+                (after, limit + 1),
             ).fetchall()
-            return [DomainSummary(**dict(row)) for row in rows]
+            page_rows = rows[:limit]
+            events = [self._wire_event(row) for row in page_rows]
+            last_sequence = page_rows[-1]["seq"] if page_rows else after
+            return EventPage(events, last_sequence, len(rows) > limit)
 
     def respond(
         self,
@@ -517,6 +643,88 @@ class NotificationRepository:
                 }
                 for row in connection.execute("SELECT * FROM events ORDER BY seq")
             ]
+
+    @staticmethod
+    def _domains(connection: sqlite3.Connection) -> list[DomainSummary]:
+        rows = connection.execute(
+            """SELECT d.name, d.last_activity_at,
+                   count(n.id) AS notification_count,
+                   sum(CASE WHEN n.read_at IS NULL THEN 1 ELSE 0 END) AS unread_count,
+                   sum(CASE WHEN n.response_state = 'pending' THEN 1 ELSE 0 END)
+                       AS pending_response_count,
+                   (SELECT newest.summary FROM notifications newest
+                    WHERE newest.domain_id = d.id
+                    ORDER BY newest.created_at DESC, newest.id DESC LIMIT 1) AS latest_summary
+               FROM domains d JOIN notifications n ON n.domain_id = d.id
+               GROUP BY d.id
+               ORDER BY d.last_activity_at DESC, d.name ASC"""
+        ).fetchall()
+        return [DomainSummary(**dict(row)) for row in rows]
+
+    @staticmethod
+    def _last_allocated_sequence(connection: sqlite3.Connection) -> int:
+        row = connection.execute("SELECT seq FROM sqlite_sequence WHERE name = 'events'").fetchone()
+        return int(row["seq"]) if row is not None else 0
+
+    @staticmethod
+    def _query_filter_key(query: NotificationQuery) -> str:
+        value = {
+            "domains": sorted(set(query.domains)),
+            "senders": sorted(set(query.senders)),
+            "unread": query.unread,
+            "response_states": sorted({item.value for item in query.response_states}),
+            "tags": sorted(set(query.tags)),
+            "created_before": query.created_before,
+            "created_after": query.created_after,
+        }
+        encoded = json.dumps(value, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(encoded.encode()).hexdigest()
+
+    @staticmethod
+    def _encode_cursor(order: str, filter_key: str, created_at: str, item_id: str) -> str:
+        value = json.dumps(
+            {"v": 1, "o": order, "f": filter_key, "c": created_at, "i": item_id},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+        return base64.urlsafe_b64encode(value).rstrip(b"=").decode()
+
+    @staticmethod
+    def _decode_cursor(cursor: str | None, order: str, filter_key: str) -> tuple[str, str] | None:
+        if cursor is None:
+            return None
+        try:
+            padding = "=" * (-len(cursor) % 4)
+            raw = base64.b64decode(cursor + padding, altchars=b"-_", validate=True)
+            value = json.loads(raw)
+            if (
+                not isinstance(value, dict)
+                or set(value) != {"v", "o", "f", "c", "i"}
+                or value["v"] != 1
+                or value["o"] != order
+                or value["f"] != filter_key
+                or not isinstance(value["c"], str)
+                or not isinstance(value["i"], str)
+            ):
+                raise ValueError
+        except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValidationError("cursor is invalid for this query") from exc
+        return value["c"], value["i"]
+
+    @staticmethod
+    def _wire_event(row: sqlite3.Row) -> dict[str, Any]:
+        event_type = row["event_type"]
+        payload = json.loads(row["payload_json"])
+        event: dict[str, Any] = {
+            "seq": row["seq"],
+            "type": event_type,
+            "occurred_at": row["occurred_at"],
+        }
+        if event_type in {"notification.created", "notification.updated"}:
+            event["notification"] = payload
+        else:
+            event.update(payload)
+        return event
 
     def _get(self, connection: sqlite3.Connection, notification_id: str) -> Notification:
         row = connection.execute(

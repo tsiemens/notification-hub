@@ -10,9 +10,11 @@ from notification_hub.config import RetentionConfig
 from notification_hub.domain import CreateNotification, MessageMode, ResponseOption, ResponseState
 from notification_hub.storage import (
     AlreadyAnsweredError,
+    CursorExpiredError,
     Database,
     DatabaseSecurityError,
     IdempotencyConflictError,
+    NotificationQuery,
     NotificationRepository,
     PendingLimitError,
     RateLimitError,
@@ -185,3 +187,71 @@ def test_cleanup_prunes_old_informational_history(repository: NotificationReposi
     result = repository.cleanup(RetentionConfig(), now=NOW)
     assert result.deleted_notifications == 1
     assert repository.list_notifications() == []
+
+
+def test_query_notifications_uses_bound_stable_cursors(
+    repository: NotificationRepository,
+) -> None:
+    first = repository.create(request(summary="First"), now=NOW)
+    second = repository.create(request(summary="Second"), now=NOW)
+    third_request = request(summary="Third")
+    third_request = CreateNotification(
+        third_request.id,
+        "other-domain",
+        "other-sender",
+        third_request.summary,
+        tags=("workspace:hub", "extra"),
+    )
+    third = repository.create(third_request, now=NOW + timedelta(seconds=1))
+
+    query = NotificationQuery(order="asc", limit=2)
+    page = repository.query_notifications(query)
+    assert [item.id for item in page.items] == sorted(
+        [first.notification.id, second.notification.id]
+    )
+    assert page.next_cursor is not None
+    next_page = repository.query_notifications(
+        NotificationQuery(order="asc", limit=2, cursor=page.next_cursor)
+    )
+    assert [item.id for item in next_page.items] == [third.notification.id]
+
+    filtered = repository.query_notifications(
+        NotificationQuery(
+            domains=("other-domain",),
+            senders=("other-sender",),
+            tags=("workspace:hub", "extra"),
+            unread=True,
+            response_states=(ResponseState.NOT_REQUESTED,),
+        )
+    )
+    assert [item.id for item in filtered.items] == [third.notification.id]
+    with pytest.raises(ValueError, match="cursor is invalid"):
+        repository.query_notifications(
+            NotificationQuery(order="desc", limit=2, cursor=page.next_cursor)
+        )
+
+
+def test_snapshot_and_event_pages_preserve_sequence_semantics(
+    repository: NotificationRepository, database: Database
+) -> None:
+    first = repository.create(request(), now=NOW)
+    second = repository.create(request(), now=NOW + timedelta(seconds=1))
+    snapshot = repository.snapshot(now=NOW + timedelta(seconds=2))
+    assert snapshot.sequence == second.event_seq
+    assert [item.id for item in snapshot.notifications] == [
+        second.notification.id,
+        first.notification.id,
+    ]
+
+    page = repository.event_page(0, 1)
+    assert [event["seq"] for event in page.events] == [first.event_seq]
+    assert page.last_sequence == first.event_seq
+    assert page.has_more
+    final_page = repository.event_page(page.last_sequence, 10)
+    assert [event["seq"] for event in final_page.events] == [second.event_seq]
+    assert not final_page.has_more
+
+    with database.connection() as connection:
+        connection.execute("DELETE FROM events WHERE seq = ?", (first.event_seq,))
+    with pytest.raises(CursorExpiredError):
+        repository.event_page(0, 10)
