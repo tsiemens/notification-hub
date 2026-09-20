@@ -121,6 +121,15 @@ def _json_object(
     if not raw_body and allow_empty_body:
         value: Any = {}
     else:
+        if request.mimetype != "application/json":
+            raise BadRequest("request Content-Type must be application/json")
+        charset = request.mimetype_params.get("charset")
+        if charset is not None and charset.lower() != "utf-8":
+            raise BadRequest("request JSON must use UTF-8")
+        try:
+            raw_body.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise BadRequest("request JSON must use UTF-8") from exc
         try:
             value = request.get_json()
         except (BadRequest, UnsupportedMediaType) as exc:

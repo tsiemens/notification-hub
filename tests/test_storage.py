@@ -231,6 +231,38 @@ def test_query_notifications_uses_bound_stable_cursors(
         )
 
 
+def test_keyset_pagination_stays_stable_when_rows_before_cursor_change(
+    repository: NotificationRepository, database: Database
+) -> None:
+    initial = [
+        repository.create(request(summary=f"Initial {index}"), now=NOW + timedelta(seconds=index))
+        for index in range(4)
+    ]
+    first_page = repository.query_notifications(NotificationQuery(order="asc", limit=2))
+    assert [item.id for item in first_page.items] == [
+        initial[0].notification.id,
+        initial[1].notification.id,
+    ]
+    assert first_page.next_cursor is not None
+
+    inserted_before_cursor = repository.create(
+        request(summary="Concurrent insertion"), now=NOW + timedelta(milliseconds=500)
+    )
+    with database.connection() as connection:
+        connection.execute("DELETE FROM notifications WHERE id = ?", (initial[0].notification.id,))
+
+    second_page = repository.query_notifications(
+        NotificationQuery(order="asc", limit=2, cursor=first_page.next_cursor)
+    )
+    assert [item.id for item in second_page.items] == [
+        initial[2].notification.id,
+        initial[3].notification.id,
+    ]
+    assert inserted_before_cursor.notification.id not in {
+        item.id for item in first_page.items + second_page.items
+    }
+
+
 def test_snapshot_and_event_pages_preserve_sequence_semantics(
     repository: NotificationRepository, database: Database
 ) -> None:

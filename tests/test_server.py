@@ -13,7 +13,9 @@ from unittest.mock import Mock
 from urllib.parse import urlencode
 
 import pytest
-from cryptography.hazmat.primitives.asymmetric import ed25519
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec, ed25519, padding, rsa
+from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from notification_hub.config import (
@@ -102,27 +104,30 @@ def signed_request(
     private_key=None,
     key_id: str = "desktop-ui",
     created: int | None = None,
+    components: list[str] | None = None,
+    signature_params_suffix: str = "",
 ):
     if query_string:
         path = f"{path}?{urlencode(query_string, doseq=True)}"
     data = None if body is None else json.dumps(body, separators=(",", ":")).encode()
     headers: dict[str, str] = {}
-    components = ["@method", "@target-uri"]
+    covered_components = components or ["@method", "@target-uri"]
     if data is not None:
         headers["Content-Type"] = "application/json"
         digest = base64.b64encode(hashlib.sha256(data).digest()).decode()
         headers["Content-Digest"] = f"sha-256=:{digest}:"
-        components.extend(["content-type", "content-digest"])
+        if components is None:
+            covered_components.extend(["content-type", "content-digest"])
     timestamp = int(time.time()) if created is None else created
     params = (
-        f"({' '.join(json.dumps(item) for item in components)})"
+        f"({' '.join(json.dumps(item) for item in covered_components)})"
         f';created={timestamp};expires={timestamp + 60};keyid="{key_id}"'
     )
     if nonce is not None:
         params += f';nonce="{nonce}"'
-    params += ';tag="notification-hub-v1"'
+    params += f';tag="notification-hub-v1"{signature_params_suffix}'
     lines = []
-    for component in components:
+    for component in covered_components:
         if component == "@method":
             value = method.upper()
         elif component == "@target-uri":
@@ -132,7 +137,24 @@ def signed_request(
         lines.append(f'"{component}": {value}')
     lines.append(f'"@signature-params": {params}')
     signing_key = private_key or client.application.extensions["test_private_key"]
-    signature = base64.b64encode(signing_key.sign("\n".join(lines).encode())).decode()
+    signature_base = "\n".join(lines).encode()
+    if isinstance(signing_key, ed25519.Ed25519PrivateKey):
+        signature_bytes = signing_key.sign(signature_base)
+    elif isinstance(signing_key, rsa.RSAPrivateKey):
+        signature_bytes = signing_key.sign(
+            signature_base,
+            padding.PSS(mgf=padding.MGF1(hashes.SHA512()), salt_length=64),
+            hashes.SHA512(),
+        )
+    else:
+        digest_algorithm = (
+            hashes.SHA256() if isinstance(signing_key.curve, ec.SECP256R1) else hashes.SHA384()
+        )
+        der_signature = signing_key.sign(signature_base, ec.ECDSA(digest_algorithm))
+        r, s = decode_dss_signature(der_signature)
+        coordinate_size = (signing_key.curve.key_size + 7) // 8
+        signature_bytes = r.to_bytes(coordinate_size, "big") + s.to_bytes(coordinate_size, "big")
+    signature = base64.b64encode(signature_bytes).decode()
     headers["Signature-Input"] = f"sig1={params}"
     headers["Signature"] = f"sig1=:{signature}:"
     return client.open(path, method=method.upper(), data=data, headers=headers)
@@ -863,3 +885,377 @@ def test_events_reports_an_expired_cursor(app, client) -> None:
             "details": {"reset_required": True},
         }
     }
+
+
+def assert_error_contract(response, status: int, code: str) -> dict[str, object]:
+    assert response.status_code == status
+    assert response.content_type == "application/json"
+    assert set(response.get_json()) == {"error"}
+    error = response.get_json()["error"]
+    assert set(error) == {"code", "message", "details"}
+    assert error["code"] == code
+    assert isinstance(error["message"], str) and error["message"]
+    assert isinstance(error["details"], dict)
+    return error
+
+
+def test_malformed_json_and_request_media_type_contract(client) -> None:
+    malformed = client.post(
+        "/api/v1/notifications",
+        data=b'{"id":',
+        content_type="application/json",
+    )
+    assert_error_contract(malformed, 400, "malformed_input")
+
+    for content_type in (
+        None,
+        "text/plain",
+        "application/merge-patch+json",
+        "application/json; charset=iso-8859-1",
+    ):
+        response = client.post(
+            "/api/v1/notifications",
+            data=json.dumps(notification()).encode(),
+            content_type=content_type,
+        )
+        assert_error_contract(response, 400, "malformed_input")
+
+    accepted = client.post(
+        "/api/v1/notifications",
+        data=json.dumps(notification()).encode(),
+        content_type="application/json; charset=UTF-8",
+    )
+    assert accepted.status_code == 201
+    assert accepted.content_type == "application/json"
+
+
+def test_request_body_limit_is_inclusive_and_checked_before_json_parsing(tmp_path: Path) -> None:
+    test_app = create_app(
+        ServerConfig(database=tmp_path / "body-limit.sqlite3", request_body_limit_kib=1)
+    )
+    test_client = test_app.test_client()
+    encoded = json.dumps(notification(options=False), separators=(",", ":")).encode()
+    boundary_body = encoded + b" " * (1024 - len(encoded))
+    assert len(boundary_body) == 1024
+    assert (
+        test_client.post(
+            "/api/v1/notifications", data=boundary_body, content_type="application/json"
+        ).status_code
+        == 201
+    )
+
+    too_large = test_client.post(
+        "/api/v1/notifications",
+        data=boundary_body + b"{",
+        content_type="application/json",
+    )
+    error = assert_error_contract(too_large, 413, "body_too_large")
+    assert error["message"] == "Request body exceeds the configured limit"
+
+
+def test_unexpected_failure_has_stable_500_contract_and_does_not_spend_nonce(
+    app, client, monkeypatch, caplog
+) -> None:
+    payload = notification(options=False)
+    client.post("/api/v1/notifications", json=payload)
+    repository = app.extensions["notification_hub_repository"]
+    original_event = repository._event
+
+    def fail_event(*_args, **_kwargs):
+        raise RuntimeError("injected database failure")
+
+    monkeypatch.setattr(repository, "_event", fail_event)
+    nonce = issue_nonce(client)
+    body = {"notification_ids": [payload["id"]], "read": True}
+    with caplog.at_level(logging.CRITICAL):
+        failed = signed_request(client, "POST", "/api/v1/read-state", body=body, nonce=nonce)
+    error = assert_error_contract(failed, 500, "internal_error")
+    assert error == {
+        "code": "internal_error",
+        "message": "An unexpected server error occurred",
+        "details": {},
+    }
+
+    monkeypatch.setattr(repository, "_event", original_event)
+    retry = signed_request(client, "POST", "/api/v1/read-state", body=body, nonce=nonce)
+    assert retry.status_code == 200
+    assert retry.get_json()["notifications"][0]["read_at"] is not None
+
+
+def test_long_poll_timeout_contracts(app, client) -> None:
+    payload = notification()
+    created = client.post("/api/v1/notifications", json=payload).get_json()
+    results: dict[str, tuple[float, dict[str, object]]] = {}
+
+    def wait_for_outcome() -> None:
+        started = time.monotonic()
+        with app.test_client() as waiting_client:
+            response = waiting_client.get(
+                f"/api/v1/notifications/{payload['id']}/outcome?wait_seconds=1"
+            )
+        results["outcome"] = (time.monotonic() - started, response.get_json())
+
+    def wait_for_events() -> None:
+        started = time.monotonic()
+        with app.test_client() as waiting_client:
+            response = signed_request(
+                waiting_client,
+                "GET",
+                f"/api/v1/events?after={created['event_seq']}&wait_seconds=1",
+            )
+        results["events"] = (time.monotonic() - started, response.get_json())
+
+    threads = [threading.Thread(target=wait_for_outcome), threading.Thread(target=wait_for_events)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(2)
+    assert all(not thread.is_alive() for thread in threads)
+    assert results["outcome"][0] >= 0.8
+    assert results["outcome"][1] == {
+        "notification_id": payload["id"],
+        "state": "pending",
+        "response": None,
+    }
+    assert results["events"][0] >= 0.8
+    assert results["events"][1] == {
+        "events": [],
+        "last_sequence": created["event_seq"],
+        "has_more": False,
+    }
+
+
+def test_missing_signature_components_and_malformed_parameters(client) -> None:
+    missing_body_components = signed_request(
+        client,
+        "POST",
+        "/api/v1/auth/nonces",
+        body={"request_id": str(uuid.uuid4()), "count": 1},
+        components=["@method", "@target-uri"],
+    )
+    assert_error_contract(missing_body_components, 401, "authentication_failed")
+    assert "required components" in missing_body_components.get_json()["error"]["message"]
+
+    missing_target = signed_request(client, "GET", "/api/v1/snapshot", components=["@method"])
+    assert_error_contract(missing_target, 401, "authentication_failed")
+
+    duplicate_parameter = signed_request(
+        client,
+        "GET",
+        "/api/v1/snapshot",
+        signature_params_suffix=";created=1",
+    )
+    assert_error_contract(duplicate_parameter, 401, "authentication_failed")
+    assert "must not be repeated" in duplicate_parameter.get_json()["error"]["message"]
+
+    malformed_parameter = client.get(
+        "/api/v1/snapshot",
+        headers={
+            "Signature-Input": 'sig1=("@method" "@target-uri");created="not-an-integer"',
+            "Signature": "sig1=:YWJjZA==:",
+        },
+    )
+    assert_error_contract(malformed_parameter, 401, "authentication_failed")
+
+
+def test_expired_nonce_and_nonce_issuance_limits(tmp_path: Path) -> None:
+    private_key = ed25519.Ed25519PrivateKey.generate()
+    public_key_path = tmp_path / "limited-client.pub"
+    public_key_path.write_bytes(
+        private_key.public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo)
+    )
+    test_app = create_app(
+        ServerConfig(
+            database=tmp_path / "nonce-limits.sqlite3",
+            auth=AuthConfig(
+                nonce_ttl_seconds=300,
+                max_outstanding_nonces_per_key=2,
+                signing_keys=(
+                    SigningKey(
+                        "client",
+                        "client",
+                        public_key_path,
+                        frozenset({"read_state"}),
+                    ),
+                ),
+            ),
+        )
+    )
+    test_app.extensions["test_private_key"] = private_key
+    test_client = test_app.test_client()
+    payload = notification(options=False)
+    test_client.post("/api/v1/notifications", json=payload)
+
+    issued = signed_request(
+        test_client,
+        "POST",
+        "/api/v1/auth/nonces",
+        body={"request_id": str(uuid.uuid4()), "count": 2},
+        private_key=private_key,
+        key_id="client",
+    )
+    assert issued.status_code == 200
+    issuance_limited = signed_request(
+        test_client,
+        "POST",
+        "/api/v1/auth/nonces",
+        body={"request_id": str(uuid.uuid4()), "count": 1},
+        private_key=private_key,
+        key_id="client",
+    )
+    assert_error_contract(issuance_limited, 429, "rate_limited")
+
+    repository = test_app.extensions["notification_hub_repository"]
+    old = format_timestamp(datetime.now(UTC) - timedelta(minutes=2))
+    expired = format_timestamp(datetime.now(UTC) - timedelta(seconds=1))
+    with repository.database.connection() as connection:
+        connection.execute("UPDATE auth_nonce_batches SET created_at = ?", (old,))
+    outstanding_limited = signed_request(
+        test_client,
+        "POST",
+        "/api/v1/auth/nonces",
+        body={"request_id": str(uuid.uuid4()), "count": 1},
+        private_key=private_key,
+        key_id="client",
+    )
+    assert_error_contract(outstanding_limited, 429, "rate_limited")
+    assert "outstanding" in outstanding_limited.get_json()["error"]["message"]
+
+    with repository.database.connection() as connection:
+        connection.execute("UPDATE auth_nonces SET expires_at = ?", (expired,))
+        connection.execute("UPDATE auth_nonce_batches SET expires_at = ?", (expired,))
+    replacement = issue_nonce(test_client, private_key=private_key, key_id="client")
+    assert replacement
+
+    with repository.database.connection() as connection:
+        connection.execute(
+            "UPDATE auth_nonces SET expires_at = ? WHERE nonce = ?", (expired, replacement)
+        )
+    denied = signed_request(
+        test_client,
+        "POST",
+        "/api/v1/read-state",
+        body={"notification_ids": [payload["id"]], "read": True},
+        nonce=replacement,
+        private_key=private_key,
+        key_id="client",
+    )
+    assert_error_contract(denied, 401, "authentication_failed")
+    assert "expired" in denied.get_json()["error"]["message"]
+
+
+@pytest.mark.parametrize(
+    "private_key",
+    [
+        pytest.param(rsa.generate_private_key(public_exponent=65537, key_size=2048), id="rsa"),
+        pytest.param(ec.generate_private_key(ec.SECP256R1()), id="p256"),
+        pytest.param(ec.generate_private_key(ec.SECP384R1()), id="p384"),
+    ],
+)
+def test_supported_rsa_and_ecdsa_signature_paths(tmp_path: Path, private_key) -> None:
+    key_id = private_key.__class__.__name__
+    public_key_path = tmp_path / f"{key_id}.pub"
+    public_key_path.write_bytes(
+        private_key.public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo)
+    )
+    test_app = create_app(
+        ServerConfig(
+            database=tmp_path / f"{key_id}.sqlite3",
+            auth=AuthConfig(
+                signing_keys=(
+                    SigningKey("crypto-client", key_id, public_key_path, frozenset({"read"})),
+                )
+            ),
+        )
+    )
+    test_app.extensions["test_private_key"] = private_key
+    response = signed_request(
+        test_app.test_client(),
+        "GET",
+        "/api/v1/snapshot",
+        private_key=private_key,
+        key_id=key_id,
+    )
+    assert response.status_code == 200
+
+
+def test_complete_read_respond_and_read_state_scope_matrix(tmp_path: Path) -> None:
+    keys: dict[str, object] = {}
+    signing_keys = []
+    for scope in ("read", "respond", "read_state"):
+        private_key = ed25519.Ed25519PrivateKey.generate()
+        keys[scope] = private_key
+        path = tmp_path / f"{scope}.pub"
+        path.write_bytes(
+            private_key.public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo)
+        )
+        signing_keys.append(SigningKey(scope, scope, path, frozenset({scope})))
+    test_app = create_app(
+        ServerConfig(
+            database=tmp_path / "scope-matrix.sqlite3",
+            auth=AuthConfig(signing_keys=tuple(signing_keys)),
+        )
+    )
+    test_app.extensions["test_private_key"] = keys["read"]
+    test_client = test_app.test_client()
+
+    read_routes = (
+        "/api/v1/notifications",
+        "/api/v1/notifications/missing",
+        "/api/v1/domains",
+        "/api/v1/snapshot",
+        "/api/v1/events",
+    )
+    for scope, private_key in keys.items():
+        for path in read_routes:
+            response = signed_request(
+                test_client, "GET", path, private_key=private_key, key_id=scope
+            )
+            if scope == "read":
+                assert response.status_code in {200, 404}
+            else:
+                assert_error_contract(response, 403, "permission_denied")
+
+    for scope, private_key in keys.items():
+        payload = notification()
+        test_client.post("/api/v1/notifications", json=payload)
+        nonce = (
+            issue_nonce(test_client, private_key=private_key, key_id=scope)
+            if scope == "respond"
+            else "scope-check"
+        )
+        response = signed_request(
+            test_client,
+            "POST",
+            f"/api/v1/notifications/{payload['id']}/response",
+            body={"request_id": str(uuid.uuid4()), "option_id": "approve"},
+            nonce=nonce,
+            private_key=private_key,
+            key_id=scope,
+        )
+        if scope == "respond":
+            assert response.status_code == 200
+        else:
+            assert_error_contract(response, 403, "permission_denied")
+
+    for scope, private_key in keys.items():
+        payload = notification(options=False)
+        test_client.post("/api/v1/notifications", json=payload)
+        nonce = (
+            issue_nonce(test_client, private_key=private_key, key_id=scope)
+            if scope == "read_state"
+            else "scope-check"
+        )
+        response = signed_request(
+            test_client,
+            "POST",
+            "/api/v1/read-state",
+            body={"notification_ids": [payload["id"]], "read": True},
+            nonce=nonce,
+            private_key=private_key,
+            key_id=scope,
+        )
+        if scope == "read_state":
+            assert response.status_code == 200
+        else:
+            assert_error_contract(response, 403, "permission_denied")
