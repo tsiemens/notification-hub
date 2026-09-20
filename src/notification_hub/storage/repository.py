@@ -511,22 +511,12 @@ class NotificationRepository:
                 ).rowcount
                 seq = None
                 if changed:
-                    event_type = (
-                        "notification.updated"
-                        if len(notification_ids) == 1
-                        else "notifications.read_state_changed"
-                    )
-                    payload: dict[str, Any]
-                    if event_type == "notification.updated":
-                        payload = self._get(connection, notification_ids[0]).to_dict()
-                    else:
-                        payload = {"notification_ids": changed_ids, "read_at": target}
                     seq = self._event(
                         connection,
-                        event_type,
-                        notification_ids[0] if len(notification_ids) == 1 else None,
+                        "notifications.read_state_changed",
+                        None,
                         timestamp,
-                        payload,
+                        {"notification_ids": changed_ids, "read_at": target},
                     )
                 notifications = [self._get(connection, item) for item in notification_ids]
                 connection.commit()

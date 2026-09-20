@@ -62,7 +62,6 @@ def test_complete_v1_route_surface_is_registered() -> None:
         ("/api/v1/notifications/<notification_id>/cancel", "POST"),
         ("/api/v1/notifications/<notification_id>/outcome", "GET"),
         ("/api/v1/notifications/<notification_id>/response", "POST"),
-        ("/api/v1/notifications/<notification_id>/read-state", "PATCH"),
         ("/api/v1/read-state", "POST"),
         ("/api/v1/domains", "GET"),
         ("/api/v1/snapshot", "GET"),
@@ -70,10 +69,8 @@ def test_complete_v1_route_surface_is_registered() -> None:
     }
 
 
-def test_stub_uses_error_envelope_and_echoes_request_id(client) -> None:
-    response = client.post(
-        "/api/v1/notifications/example/response", headers={"X-Request-ID": "request-123"}
-    )
+def test_remaining_stub_uses_error_envelope_and_echoes_request_id(client) -> None:
+    response = client.post("/api/v1/auth/nonces", headers={"X-Request-ID": "request-123"})
     assert response.status_code == 501
     assert response.content_type == "application/json"
     assert response.headers["X-Request-ID"] == "request-123"
@@ -81,7 +78,7 @@ def test_stub_uses_error_envelope_and_echoes_request_id(client) -> None:
         "error": {
             "code": "not_implemented",
             "message": "This API endpoint has not been implemented",
-            "details": {"endpoint": "notification_response"},
+            "details": {"endpoint": "auth_nonces"},
         }
     }
 
@@ -133,6 +130,117 @@ def test_outcome_and_cancel(client) -> None:
     assert cancelled.status_code == 200
     assert cancelled.get_json() == retry.get_json()
     assert client.get(outcome_url).get_json()["state"] == "cancelled"
+
+
+def test_response_is_validated_committed_and_idempotent(client) -> None:
+    payload = notification()
+    payload["response_options"] = [
+        {
+            "id": "deny",
+            "label": "Deny",
+            "message_mode": "required",
+            "appearance": "danger",
+        }
+    ]
+    client.post("/api/v1/notifications", json=payload)
+    url = f"/api/v1/notifications/{payload['id']}/response"
+    request_id = str(uuid.uuid4())
+
+    invalid = client.post(
+        url, json={"request_id": request_id, "option_id": "deny", "message": None}
+    )
+    assert invalid.status_code == 422
+
+    body = {
+        "request_id": request_id,
+        "option_id": "deny",
+        "message": "Use the sandbox instead.",
+    }
+    first = client.post(url, json=body)
+    retry = client.post(url, json=body)
+    assert first.status_code == 200
+    assert retry.get_json() == first.get_json()
+    assert first.get_json()["notification"]["response"] == {
+        "request_id": request_id,
+        "option_id": "deny",
+        "message": "Use the sandbox instead.",
+        "responded_at": first.get_json()["notification"]["response"]["responded_at"],
+        "responded_by": "unauthenticated-client",
+    }
+
+    conflict = client.post(
+        url,
+        json={"request_id": str(uuid.uuid4()), "option_id": "deny", "message": "Different"},
+    )
+    assert conflict.status_code == 409
+    assert conflict.get_json()["error"]["code"] == "already_answered"
+    assert (
+        conflict.get_json()["error"]["details"]["notification"]["response"]
+        == first.get_json()["notification"]["response"]
+    )
+
+
+def test_read_state_handles_one_or_many_ids_and_emits_only_for_changes(client) -> None:
+    first = notification(options=False)
+    second = notification(options=False)
+    client.post("/api/v1/notifications", json=first)
+    client.post("/api/v1/notifications", json=second)
+
+    single = client.post(
+        "/api/v1/read-state",
+        json={"notification_ids": [first["id"]], "read": True},
+    )
+    assert single.status_code == 200
+    assert single.get_json()["notifications"][0]["read_at"] is not None
+    assert single.get_json()["event_seq"] is not None
+    single_event = client.get(
+        "/api/v1/events", query_string={"after": single.get_json()["event_seq"] - 1}
+    ).get_json()["events"][0]
+    assert single_event["type"] == "notifications.read_state_changed"
+    assert single_event["notification_ids"] == [first["id"]]
+
+    unchanged = client.post(
+        "/api/v1/read-state",
+        json={"notification_ids": [first["id"]], "read": True},
+    )
+    assert unchanged.status_code == 200
+    assert unchanged.get_json()["event_seq"] is None
+
+    bulk = client.post(
+        "/api/v1/read-state",
+        json={"notification_ids": [first["id"], second["id"]], "read": False},
+    )
+    assert bulk.status_code == 200
+    assert [item["id"] for item in bulk.get_json()["notifications"]] == [
+        first["id"],
+        second["id"],
+    ]
+    assert all(item["read_at"] is None for item in bulk.get_json()["notifications"])
+    event = client.get(
+        "/api/v1/events", query_string={"after": bulk.get_json()["event_seq"] - 1}
+    ).get_json()["events"][0]
+    assert event["type"] == "notifications.read_state_changed"
+    assert event["notification_ids"] == [first["id"]]
+    assert event["read_at"] is None
+
+
+@pytest.mark.parametrize(
+    ("path", "method", "body"),
+    [
+        (
+            "/api/v1/notifications/missing/response",
+            "post",
+            {"request_id": 1, "option_id": "approve"},
+        ),
+        ("/api/v1/read-state", "post", {"notification_ids": ["missing"], "read": "true"}),
+        ("/api/v1/read-state", "post", {"notification_ids": "missing", "read": True}),
+        ("/api/v1/read-state", "post", {"notification_ids": [], "read": True}),
+    ],
+)
+def test_write_routes_reject_invalid_bodies(client, path, method, body) -> None:
+    response = getattr(client, method)(path, json=body)
+    assert response.status_code == 422
+    assert response.get_json()["error"]["code"] == "invalid_data"
 
 
 def test_outcome_validates_wait_and_unknown_notification(client) -> None:

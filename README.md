@@ -11,7 +11,10 @@ configuration, SQLite migrations and repository operations, and retention.
 Phase 2 includes the Flask application factory, the notifier-facing producer API
 (health, create, outcome waiting, and cancellation), and the read-only hub/UI
 API (filtered notification pages, domains, snapshot, and change feed). Signed
-authentication and the state-changing hub/UI endpoints remain later phase-2 work.
+authentication and nonce replay protection remain later phase-2 work. The
+state-changing hub/UI response and read-state endpoints are wired to the
+transactional repository, but are temporarily unauthenticated until that
+boundary is added.
 
 ## Testing
 

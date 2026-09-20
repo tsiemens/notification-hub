@@ -22,6 +22,7 @@ from notification_hub.domain import (
     parse_timestamp,
 )
 from notification_hub.storage import (
+    AlreadyAnsweredError,
     CursorExpiredError,
     Database,
     IdempotencyConflictError,
@@ -319,6 +320,57 @@ def create_app(
             200,
         )
 
+    def notification_response(notification_id: str) -> tuple[Response, int]:
+        value = _json_object(
+            allowed={"request_id", "option_id", "message"},
+            required={"request_id", "option_id"},
+        )
+        request_id = value["request_id"]
+        option_id = value["option_id"]
+        message = value.get("message")
+        if not isinstance(request_id, str):
+            raise ValidationError("request_id must be a string")
+        if not isinstance(option_id, str):
+            raise ValidationError("option_id must be a string")
+        if message is not None and not isinstance(message, str):
+            raise ValidationError("message must be a string or null")
+
+        # Signed authentication will supply this value once its boundary is
+        # added. Keeping the placeholder server-owned prevents callers from
+        # forging an audit principal in the interim implementation.
+        result = get_repository().respond(
+            notification_id,
+            request_id,
+            option_id,
+            message,
+            "unauthenticated-client",
+        )
+        if result.changed:
+            with state_changed:
+                state_changed.notify_all()
+        return jsonify(notification=result.notification.to_dict(), event_seq=result.event_seq), 200
+
+    def read_state() -> tuple[Response, int]:
+        value = _json_object(
+            allowed={"notification_ids", "read"},
+            required={"notification_ids", "read"},
+        )
+        notification_ids = value["notification_ids"]
+        read = value["read"]
+        if not isinstance(notification_ids, list) or any(
+            not isinstance(item, str) for item in notification_ids
+        ):
+            raise ValidationError("notification_ids must be an array of strings")
+        if not isinstance(read, bool):
+            raise ValidationError("read must be a boolean")
+        notifications, event_seq = get_repository().set_read_state(notification_ids, read)
+        if event_seq is not None:
+            with state_changed:
+                state_changed.notify_all()
+        return jsonify(
+            notifications=[item.to_dict() for item in notifications], event_seq=event_seq
+        ), 200
+
     def notifications_list() -> tuple[Response, int]:
         page = get_repository().query_notifications(_notification_query())
         return jsonify(
@@ -379,6 +431,13 @@ def create_app(
             ("GET",),
             notification_outcome,
         ),
+        (
+            "notification_response",
+            "/api/v1/notifications/<notification_id>/response",
+            ("POST",),
+            notification_response,
+        ),
+        ("read_state", "/api/v1/read-state", ("POST",), read_state),
         ("notifications_list", "/api/v1/notifications", ("GET",), notifications_list),
         (
             "notification_get",
@@ -392,17 +451,6 @@ def create_app(
     )
     stub_routes: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         ("auth_nonces", "/api/v1/auth/nonces", ("POST",)),
-        (
-            "notification_response",
-            "/api/v1/notifications/<notification_id>/response",
-            ("POST",),
-        ),
-        (
-            "notification_read_state",
-            "/api/v1/notifications/<notification_id>/read-state",
-            ("PATCH",),
-        ),
-        ("read_state", "/api/v1/read-state", ("POST",)),
     )
     for endpoint, rule, methods, view in implemented_routes:
         app.add_url_rule(rule, endpoint, view, methods=list(methods))
@@ -442,6 +490,15 @@ def create_app(
     @app.errorhandler(CursorExpiredError)
     def cursor_expired(error: CursorExpiredError) -> tuple[Response, int]:
         return _error("cursor_expired", str(error), 409, {"reset_required": True})
+
+    @app.errorhandler(AlreadyAnsweredError)
+    def already_answered(error: AlreadyAnsweredError) -> tuple[Response, int]:
+        return _error(
+            "already_answered",
+            "The notification already has a response",
+            409,
+            {"notification": error.notification.to_dict()},
+        )
 
     @app.errorhandler(StateConflictError)
     def state_conflict(error: StateConflictError) -> tuple[Response, int]:
