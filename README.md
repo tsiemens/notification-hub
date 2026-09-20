@@ -13,6 +13,15 @@ digests, scope enforcement, and transactional single-use mutation nonces.
 Producer create, outcome, and cancellation routes remain intentionally
 unauthenticated as specified in the design.
 
+## Running the server
+
+Start the service with its default XDG configuration path, or provide one
+explicitly:
+
+```sh
+nh-server --config /path/to/server.config.toml
+```
+
 ## Testing
 
 Run the tests with:

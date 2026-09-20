@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import logging
+import signal
 import threading
 import time
 import uuid
@@ -34,6 +35,7 @@ from notification_hub.domain import (
 )
 from notification_hub.server import create_app
 from notification_hub.server.app import _CleanupWorker
+from notification_hub.server.runner import serve
 from notification_hub.storage import Database, NotificationRepository
 
 
@@ -784,6 +786,72 @@ def test_get_domains_snapshot_and_events(client) -> None:
     }
 
 
+def test_large_snapshot_is_size_bounded_and_stable_across_pages(app) -> None:
+    paged_app = create_app(
+        app.config["NOTIFICATION_HUB_CONFIG"],
+        repository=app.extensions["notification_hub_start"](),
+        snapshot_max_bytes=1_600,
+    )
+    paged_app.extensions["test_private_key"] = app.extensions["test_private_key"]
+    expected_ids = []
+    with paged_app.test_client() as paged_client:
+        for index in range(6):
+            payload = notification()
+            payload["summary"] = f"Snapshot item {index}"
+            payload["message"] = "x" * 500
+            expected_ids.append(payload["id"])
+            paged_client.post("/api/v1/notifications", json=payload)
+
+        response = signed_request(paged_client, "GET", "/api/v1/snapshot")
+        assert response.status_code == 200
+        assert len(response.data) <= 1_600
+        page = response.get_json()
+        assert page["snapshot_token"]
+        snapshot_sequence = page["sequence"]
+        seen_ids = [item["id"] for item in page["notifications"]]
+        seen_domains = page["domains"]
+
+        # The token identifies immutable materialized state, so this later
+        # notification must not leak into subsequent pages.
+        later = notification()
+        paged_client.post("/api/v1/notifications", json=later)
+
+        while page["next_cursor"] is not None:
+            response = signed_request(
+                paged_client,
+                "GET",
+                "/api/v1/snapshot",
+                query_string={
+                    "snapshot_token": page["snapshot_token"],
+                    "cursor": page["next_cursor"],
+                },
+            )
+            assert response.status_code == 200
+            assert len(response.data) <= 1_600
+            page = response.get_json()
+            assert page["sequence"] == snapshot_sequence
+            seen_ids.extend(item["id"] for item in page["notifications"])
+            seen_domains.extend(page["domains"])
+
+    paged_app.extensions["notification_hub_lifecycle"].stop(join=True)
+    assert set(seen_ids) == set(expected_ids)
+    assert later["id"] not in seen_ids
+    assert len(seen_domains) == 1
+
+
+def test_snapshot_rejects_invalid_or_expired_pagination_state(app) -> None:
+    with app.test_client() as test_client:
+        missing_token = signed_request(test_client, "GET", "/api/v1/snapshot?cursor=1")
+        expired = signed_request(
+            test_client,
+            "GET",
+            "/api/v1/snapshot?snapshot_token=unknown&cursor=0",
+        )
+    assert missing_token.status_code == 422
+    assert expired.status_code == 409
+    assert expired.get_json()["error"]["details"] == {"reset_required": True}
+
+
 def test_read_routes_reject_unknown_or_invalid_query_values(client) -> None:
     assert signed_request(client, "GET", "/api/v1/domains?extra=true").status_code == 422
     assert signed_request(client, "GET", "/api/v1/events?after=-1").status_code == 422
@@ -817,6 +885,84 @@ def test_waiting_events_wakes_after_create(app) -> None:
 
     assert not waiter.is_alive()
     assert result[0]["events"][0]["type"] == "notification.created"
+
+
+def test_application_stop_wakes_long_polls_and_rejects_new_work(app, client) -> None:
+    payload = notification()
+    created = client.post("/api/v1/notifications", json=payload).get_json()
+    started = threading.Barrier(3)
+    results: list[tuple[str, int, dict[str, object]]] = []
+
+    def wait_for_outcome() -> None:
+        with app.test_client() as waiting_client:
+            started.wait()
+            response = waiting_client.get(
+                f"/api/v1/notifications/{payload['id']}/outcome?wait_seconds=30"
+            )
+            results.append(("outcome", response.status_code, response.get_json()))
+
+    def wait_for_events() -> None:
+        with app.test_client() as waiting_client:
+            started.wait()
+            response = signed_request(
+                waiting_client,
+                "GET",
+                f"/api/v1/events?after={created['event_seq']}&wait_seconds=30",
+            )
+            results.append(("events", response.status_code, response.get_json()))
+
+    threads = [threading.Thread(target=wait_for_outcome), threading.Thread(target=wait_for_events)]
+    for thread in threads:
+        thread.start()
+    started.wait()
+    time.sleep(0.05)
+    app.extensions["notification_hub_lifecycle"].stop()
+    for thread in threads:
+        thread.join(1)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert {kind for kind, status, _body in results if status == 200} == {"outcome", "events"}
+    event_body = next(body for kind, _status, body in results if kind == "events")
+    assert event_body["events"] == []
+    assert event_body["last_sequence"] == created["event_seq"]
+    assert client.get("/healthz").status_code == 503
+
+
+def test_server_runner_handles_signal_and_closes_listener(tmp_path: Path, monkeypatch) -> None:
+    config = ServerConfig(database=tmp_path / "runner.sqlite3")
+    handlers = {}
+
+    class FakeServer:
+        daemon_threads = True
+
+        def __init__(self) -> None:
+            self.shutdown_called = threading.Event()
+            self.closed = False
+
+        def serve_forever(self) -> None:
+            handlers[signal.SIGTERM](signal.SIGTERM, None)
+            assert self.shutdown_called.wait(1)
+
+        def shutdown(self) -> None:
+            self.shutdown_called.set()
+
+        def server_close(self) -> None:
+            self.closed = True
+
+    fake_server = FakeServer()
+    monkeypatch.setattr(
+        "notification_hub.server.runner.make_server", lambda *args, **kwargs: fake_server
+    )
+    monkeypatch.setattr(
+        "notification_hub.server.runner.signal.signal",
+        lambda signum, handler: handlers.setdefault(signum, handler),
+    )
+
+    serve(config)
+
+    assert fake_server.daemon_threads is False
+    assert fake_server.shutdown_called.is_set()
+    assert fake_server.closed
 
 
 def test_cleanup_expiry_wakes_outcome_and_event_waiters(app, client) -> None:

@@ -3,8 +3,11 @@ from __future__ import annotations
 import threading
 import time
 import weakref
+from collections import OrderedDict
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from logging import Logger
+from secrets import token_urlsafe
 from typing import Any
 
 from flask import Flask, Response, g, jsonify, request
@@ -40,12 +43,100 @@ from notification_hub.storage import (
     NotificationRepository,
     PendingLimitError,
     RateLimitError,
+    Snapshot,
     StateConflictError,
 )
 
 JsonObject = Mapping[str, Any]
 
 _CLEANUP_INTERVAL_SECONDS = 60 * 60
+_SNAPSHOT_MAX_BYTES = 10 * 1024 * 1024
+_SNAPSHOT_TOKEN_TTL_SECONDS = 60
+_MAX_CACHED_SNAPSHOTS = 5
+
+
+@dataclass(slots=True)
+class _CachedSnapshot:
+    expires_at: float
+    value: Snapshot
+
+
+class _SnapshotCache:
+    """Keep a few immutable snapshots available while clients fetch their pages."""
+
+    def __init__(self, *, ttl_seconds: float = _SNAPSHOT_TOKEN_TTL_SECONDS) -> None:
+        self._ttl_seconds = ttl_seconds
+        self._lock = threading.Lock()
+        self._entries: OrderedDict[str, _CachedSnapshot] = OrderedDict()
+
+    def add(self, value: Snapshot) -> str:
+        with self._lock:
+            self._expire()
+            while len(self._entries) >= _MAX_CACHED_SNAPSHOTS:
+                self._entries.popitem(last=False)
+            token = token_urlsafe(32)
+            self._entries[token] = _CachedSnapshot(time.monotonic() + self._ttl_seconds, value)
+            return token
+
+    def get(self, token: str) -> Snapshot | None:
+        with self._lock:
+            self._expire()
+            entry = self._entries.get(token)
+            if entry is None:
+                return None
+            self._entries.move_to_end(token)
+            return entry.value
+
+    def clear(self) -> None:
+        with self._lock:
+            self._entries.clear()
+
+    def _expire(self) -> None:
+        now = time.monotonic()
+        expired = [token for token, entry in self._entries.items() if entry.expires_at <= now]
+        for token in expired:
+            del self._entries[token]
+
+
+class _ApplicationLifecycle:
+    """Coordinate request draining and background/long-poll shutdown."""
+
+    def __init__(self, state_changed: threading.Condition, cleanup: _CleanupWorker) -> None:
+        self._state_changed = state_changed
+        self._cleanup = cleanup
+        self._condition = threading.Condition()
+        self._stopping = False
+        self._active_requests = 0
+
+    @property
+    def stopping(self) -> bool:
+        with self._condition:
+            return self._stopping
+
+    def begin_request(self) -> bool:
+        with self._condition:
+            if self._stopping:
+                return False
+            self._active_requests += 1
+            return True
+
+    def end_request(self) -> None:
+        with self._condition:
+            self._active_requests -= 1
+            if self._active_requests == 0:
+                self._condition.notify_all()
+
+    def stop(self, *, join: bool = False) -> None:
+        with self._condition:
+            self._stopping = True
+        self._cleanup.stop(join=join)
+        with self._state_changed:
+            self._state_changed.notify_all()
+
+    def wait_for_idle(self) -> None:
+        with self._condition:
+            while self._active_requests:
+                self._condition.wait()
 
 
 class _CleanupWorker:
@@ -230,6 +321,18 @@ def _query_integer(name: str, default: int, minimum: int, maximum: int) -> int:
     return value
 
 
+def _parse_snapshot_cursor(raw_value: str | None) -> int:
+    if raw_value is None:
+        return 0
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise ValidationError("cursor must be a non-negative integer") from exc
+    if str(value) != raw_value or value < 0:
+        raise ValidationError("cursor must be a non-negative integer")
+    return value
+
+
 def _reject_unknown_query(allowed: set[str]) -> None:
     unknown = set(request.args) - allowed
     if unknown:
@@ -283,7 +386,10 @@ def _notification_query() -> NotificationQuery:
 
 
 def create_app(
-    config: ServerConfig | None = None, *, repository: NotificationRepository | None = None
+    config: ServerConfig | None = None,
+    *,
+    repository: NotificationRepository | None = None,
+    snapshot_max_bytes: int = _SNAPSHOT_MAX_BYTES,
 ) -> Flask:
     """Create the HTTP application.
 
@@ -302,8 +408,12 @@ def create_app(
     init_lock = threading.Lock()
     state_changed = threading.Condition()
     cleanup_worker = _CleanupWorker(config.retention, state_changed, app.logger)
+    lifecycle = _ApplicationLifecycle(state_changed, cleanup_worker)
+    snapshot_cache = _SnapshotCache()
     app.extensions["notification_hub_cleanup_worker"] = cleanup_worker
-    weakref.finalize(app, cleanup_worker.stop)
+    app.extensions["notification_hub_lifecycle"] = lifecycle
+    app.extensions["notification_hub_snapshot_cache"] = snapshot_cache
+    weakref.finalize(app, lifecycle.stop)
     if repository is not None:
         app.extensions["notification_hub_repository"] = repository
 
@@ -322,6 +432,11 @@ def create_app(
                     app.extensions["notification_hub_repository"] = existing
         cleanup_worker.start(existing)
         return existing
+
+    # The executable calls this before binding its listening socket, ensuring
+    # migrations and startup cleanup have completed before the process accepts
+    # traffic. Tests and embedders retain the existing lazy-start behavior.
+    app.extensions["notification_hub_start"] = get_repository
 
     def health() -> tuple[Response, int]:
         get_repository()
@@ -411,7 +526,7 @@ def create_app(
                 if notification.response_state is not ResponseState.PENDING:
                     break
                 remaining = deadline - time.monotonic()
-                if remaining <= 0:
+                if remaining <= 0 or lifecycle.stopping:
                     break
                 state_changed.wait(remaining)
         return (
@@ -495,14 +610,73 @@ def create_app(
         return jsonify(items=[item.to_dict() for item in get_repository().domains()]), 200
 
     def snapshot() -> tuple[Response, int]:
-        _reject_unknown_query(set())
-        value = get_repository().snapshot()
-        return jsonify(
-            sequence=value.sequence,
-            generated_at=value.generated_at,
-            domains=[item.to_dict() for item in value.domains],
-            notifications=[item.to_dict() for item in value.notifications],
-        ), 200
+        _reject_unknown_query({"snapshot_token", "cursor"})
+        token = _single_query_value("snapshot_token")
+        raw_cursor = _single_query_value("cursor")
+        if token is None and raw_cursor is not None:
+            raise ValidationError("cursor requires snapshot_token")
+
+        if token is None:
+            value = get_repository().snapshot()
+            complete_payload = {
+                "sequence": value.sequence,
+                "generated_at": value.generated_at,
+                "domains": [item.to_dict() for item in value.domains],
+                "notifications": [item.to_dict() for item in value.notifications],
+            }
+            complete_response = app.json.response(complete_payload)
+            if len(complete_response.get_data()) <= snapshot_max_bytes:
+                return complete_response, 200
+            token = snapshot_cache.add(value)
+            cursor = 0
+        else:
+            value = snapshot_cache.get(token)
+            if value is None:
+                return _error(
+                    "snapshot_expired",
+                    "The snapshot token is invalid or has expired",
+                    409,
+                    {"reset_required": True},
+                )
+            cursor = _parse_snapshot_cursor(raw_cursor)
+
+        domain_values = [item.to_dict() for item in value.domains]
+        notification_values = [item.to_dict() for item in value.notifications]
+        total = len(domain_values) + len(notification_values)
+        if cursor >= total:
+            raise ValidationError("cursor is outside the snapshot")
+
+        def page_response(end: int) -> Response:
+            domain_end = min(end, len(domain_values))
+            notification_start = max(cursor - len(domain_values), 0)
+            notification_end = max(end - len(domain_values), 0)
+            payload = {
+                "sequence": value.sequence,
+                "generated_at": value.generated_at,
+                "domains": domain_values[cursor:domain_end] if cursor < len(domain_values) else [],
+                "notifications": notification_values[notification_start:notification_end],
+                "snapshot_token": token,
+                "next_cursor": str(end) if end < total else None,
+            }
+            return app.json.response(payload)
+
+        low, high = cursor + 1, total
+        best: Response | None = None
+        while low <= high:
+            end = (low + high) // 2
+            candidate = page_response(end)
+            if len(candidate.get_data()) <= snapshot_max_bytes:
+                best = candidate
+                low = end + 1
+            else:
+                high = end - 1
+        if best is None:
+            return _error(
+                "snapshot_item_too_large",
+                "A snapshot item exceeds the 10 MiB encoded response limit",
+                500,
+            )
+        return best, 200
 
     def events() -> tuple[Response, int]:
         _reject_unknown_query({"after", "wait_seconds", "limit"})
@@ -516,7 +690,7 @@ def create_app(
                 if page.events or page.has_more:
                     break
                 remaining = deadline - time.monotonic()
-                if remaining <= 0:
+                if remaining <= 0 or lifecycle.stopping:
                     break
                 state_changed.wait(remaining)
         return jsonify(
@@ -684,6 +858,18 @@ def create_app(
                 request_id,
             )
         return response
+
+    @app.before_request
+    def reject_requests_during_shutdown() -> tuple[Response, int] | None:
+        if lifecycle.begin_request():
+            g.notification_hub_request_active = True
+            return None
+        return _error("server_stopping", "The server is shutting down", 503)
+
+    @app.teardown_request
+    def finish_request(_error_value: BaseException | None) -> None:
+        if getattr(g, "notification_hub_request_active", False):
+            lifecycle.end_request()
 
     if repository is not None:
         # An injected repository is already active, so application creation is

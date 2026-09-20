@@ -9,6 +9,9 @@ dependencies = [
     "flask>=3.1,<4",
 ]
 
+[project.scripts]
+nh-server = "notification_hub.server.runner:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
