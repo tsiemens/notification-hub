@@ -14,6 +14,8 @@ from notification_hub.storage import (
     DatabaseSecurityError,
     IdempotencyConflictError,
     NotificationRepository,
+    PendingLimitError,
+    RateLimitError,
 )
 
 NOW = datetime(2026, 9, 19, 12, 0, tzinfo=UTC)
@@ -89,6 +91,31 @@ class RepositoryTests(unittest.TestCase):
         )
         with self.assertRaises(IdempotencyConflictError):
             self.repository.create(changed_request, now=NOW)
+
+    def test_create_limits_are_atomic_and_do_not_block_exact_retries(self) -> None:
+        pending = self.request(options=True)
+        self.repository.create(
+            pending, now=NOW, max_creates_per_minute=10, max_pending_total=1
+        )
+        retry = self.repository.create(
+            pending, now=NOW, max_creates_per_minute=1, max_pending_total=1
+        )
+        self.assertFalse(retry.changed)
+
+        with self.assertRaises(PendingLimitError):
+            self.repository.create(
+                self.request(options=True),
+                now=NOW,
+                max_creates_per_minute=10,
+                max_pending_total=1,
+            )
+        with self.assertRaises(RateLimitError):
+            self.repository.create(
+                self.request(),
+                now=NOW,
+                max_creates_per_minute=1,
+                max_pending_total=1,
+            )
 
     def test_response_is_terminal_and_message_mode_is_enforced(self) -> None:
         created = self.repository.create(self.request(options=True), now=NOW)

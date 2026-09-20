@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "A single-user notification and approval hub"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "flask>=3.1,<4",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -19,4 +21,3 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
-

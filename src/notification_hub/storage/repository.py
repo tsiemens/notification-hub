@@ -40,6 +40,14 @@ class StateConflictError(RepositoryError):
     pass
 
 
+class RateLimitError(RepositoryError):
+    pass
+
+
+class PendingLimitError(RateLimitError):
+    pass
+
+
 class AlreadyAnsweredError(StateConflictError):
     def __init__(self, notification: Notification) -> None:
         super().__init__("the notification already has a response")
@@ -71,8 +79,11 @@ class NotificationRepository:
         request: CreateNotification,
         *,
         now: datetime | None = None,
+        max_creates_per_minute: int | None = None,
+        max_pending_total: int | None = None,
     ) -> MutationResult:
-        timestamp = format_timestamp(now or datetime.now(UTC))
+        current_time = now or datetime.now(UTC)
+        timestamp = format_timestamp(current_time)
         fingerprint = create_fingerprint(request)
         with self.database.connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -89,6 +100,20 @@ class NotificationRepository:
                     event_seq = self._latest_entity_event(connection, request.id)
                     connection.commit()
                     return MutationResult(notification, event_seq, False)
+
+                if max_creates_per_minute is not None:
+                    cutoff = format_timestamp(current_time - timedelta(minutes=1))
+                    recent_creates = connection.execute(
+                        "SELECT count(*) FROM notifications WHERE created_at > ?", (cutoff,)
+                    ).fetchone()[0]
+                    if recent_creates >= max_creates_per_minute:
+                        raise RateLimitError("notification create rate limit exceeded")
+                if max_pending_total is not None and request.response_options:
+                    pending = connection.execute(
+                        "SELECT count(*) FROM notifications WHERE response_state = 'pending'"
+                    ).fetchone()[0]
+                    if pending >= max_pending_total:
+                        raise PendingLimitError("pending notification limit exceeded")
 
                 connection.execute(
                     "INSERT INTO domains(name, created_at, last_activity_at) VALUES (?, ?, ?) "

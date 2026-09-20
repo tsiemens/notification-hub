@@ -4,6 +4,8 @@ from .repository import (
     IdempotencyConflictError,
     NotFoundError,
     NotificationRepository,
+    PendingLimitError,
+    RateLimitError,
     StateConflictError,
 )
 
@@ -15,5 +17,7 @@ __all__ = [
     "MigrationError",
     "NotFoundError",
     "NotificationRepository",
+    "PendingLimitError",
+    "RateLimitError",
     "StateConflictError",
 ]
