@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import secrets
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -51,6 +52,10 @@ class PendingLimitError(RateLimitError):
 
 
 class CursorExpiredError(RepositoryError):
+    pass
+
+
+class NonceError(RepositoryError):
     pass
 
 
@@ -111,9 +116,100 @@ class EventPage:
     has_more: bool
 
 
+@dataclass(frozen=True, slots=True)
+class IssuedNonce:
+    value: str
+    expires_at: str
+
+
 class NotificationRepository:
     def __init__(self, database: Database) -> None:
         self.database = database
+
+    def issue_nonces(
+        self,
+        key_id: str,
+        request_id: str,
+        count: int,
+        *,
+        ttl_seconds: int,
+        max_outstanding: int,
+        now: datetime | None = None,
+    ) -> list[IssuedNonce]:
+        if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
+            raise ValidationError("request_id must be a string of 1..128 characters")
+        if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= 64:
+            raise ValidationError("count must be an integer from 1 through 64")
+        current_time = now or datetime.now(UTC)
+        timestamp = format_timestamp(current_time)
+        expires_at = format_timestamp(current_time + timedelta(seconds=ttl_seconds))
+        with self.database.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                connection.execute(
+                    "DELETE FROM auth_nonce_batches WHERE expires_at < ?", (timestamp,)
+                )
+                batch = connection.execute(
+                    "SELECT requested_count FROM auth_nonce_batches "
+                    "WHERE key_id = ? AND request_id = ?",
+                    (key_id, request_id),
+                ).fetchone()
+                if batch is not None:
+                    if batch["requested_count"] != count:
+                        raise IdempotencyConflictError(
+                            "nonce request id was reused with a different count"
+                        )
+                    rows = connection.execute(
+                        "SELECT nonce, expires_at FROM auth_nonces "
+                        "WHERE key_id = ? AND request_id = ? ORDER BY rowid",
+                        (key_id, request_id),
+                    ).fetchall()
+                    connection.commit()
+                    return [IssuedNonce(row["nonce"], row["expires_at"]) for row in rows]
+                issuance_cutoff = format_timestamp(current_time - timedelta(minutes=1))
+                recently_issued = connection.execute(
+                    "SELECT coalesce(sum(requested_count), 0) FROM auth_nonce_batches "
+                    "WHERE key_id = ? AND created_at > ?",
+                    (key_id, issuance_cutoff),
+                ).fetchone()[0]
+                if recently_issued + count > max_outstanding:
+                    raise RateLimitError("nonce issuance rate limit exceeded")
+                outstanding = connection.execute(
+                    "SELECT count(*) FROM auth_nonces "
+                    "WHERE key_id = ? AND used_at IS NULL AND expires_at >= ?",
+                    (key_id, timestamp),
+                ).fetchone()[0]
+                if outstanding + count > max_outstanding:
+                    raise RateLimitError("outstanding nonce limit exceeded")
+                connection.execute(
+                    "INSERT INTO auth_nonce_batches"
+                    "(key_id, request_id, requested_count, created_at, expires_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (key_id, request_id, count, timestamp, expires_at),
+                )
+                issued = [IssuedNonce(secrets.token_urlsafe(32), expires_at) for _ in range(count)]
+                connection.executemany(
+                    "INSERT INTO auth_nonces(nonce, key_id, request_id, expires_at, used_at) "
+                    "VALUES (?, ?, ?, ?, NULL)",
+                    [(item.value, key_id, request_id, item.expires_at) for item in issued],
+                )
+                connection.commit()
+                return issued
+            except Exception:
+                connection.rollback()
+                raise
+
+    @staticmethod
+    def _consume_nonce(
+        connection: sqlite3.Connection, key_id: str, nonce: str, timestamp: str
+    ) -> None:
+        changed = connection.execute(
+            "UPDATE auth_nonces SET used_at = ? WHERE nonce = ? AND key_id = ? "
+            "AND used_at IS NULL AND expires_at >= ?",
+            (timestamp, nonce, key_id, timestamp),
+        ).rowcount
+        if changed != 1:
+            raise NonceError("nonce is unknown, expired, already used, or belongs to another key")
 
     def create(
         self,
@@ -339,12 +435,15 @@ class NotificationRepository:
         message: str | None,
         responder_principal: str,
         *,
+        auth_nonce: tuple[str, str] | None = None,
         now: datetime | None = None,
     ) -> MutationResult:
         timestamp = format_timestamp(now or datetime.now(UTC))
         with self.database.connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
+                if auth_nonce is not None:
+                    self._consume_nonce(connection, *auth_nonce, timestamp)
                 existing = connection.execute(
                     "SELECT notification_id, option_id, message, responder_principal "
                     "FROM responses WHERE request_id = ?",
@@ -413,6 +512,9 @@ class NotificationRepository:
                 )
                 connection.commit()
                 return MutationResult(notification, seq, True)
+            except (AlreadyAnsweredError, IdempotencyConflictError, StateConflictError):
+                connection.commit()
+                raise
             except Exception:
                 connection.rollback()
                 raise
@@ -475,7 +577,12 @@ class NotificationRepository:
                 raise
 
     def set_read_state(
-        self, notification_ids: list[str], read: bool, *, now: datetime | None = None
+        self,
+        notification_ids: list[str],
+        read: bool,
+        *,
+        auth_nonce: tuple[str, str] | None = None,
+        now: datetime | None = None,
     ) -> tuple[list[Notification], int | None]:
         if (
             not notification_ids
@@ -489,6 +596,8 @@ class NotificationRepository:
         with self.database.connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
+                if auth_nonce is not None:
+                    self._consume_nonce(connection, *auth_nonce, timestamp)
                 found = connection.execute(
                     f"SELECT id FROM notifications WHERE id IN ({placeholders})", notification_ids
                 ).fetchall()

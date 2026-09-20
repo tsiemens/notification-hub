@@ -5,7 +5,7 @@ import time
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, g, jsonify, request
 from werkzeug.exceptions import (
     BadRequest,
     HTTPException,
@@ -21,11 +21,18 @@ from notification_hub.domain import (
     ValidationError,
     parse_timestamp,
 )
+from notification_hub.server.auth import (
+    AuthenticatedPrincipal,
+    AuthenticationError,
+    AuthorizationError,
+    RequestAuthenticator,
+)
 from notification_hub.storage import (
     AlreadyAnsweredError,
     CursorExpiredError,
     Database,
     IdempotencyConflictError,
+    NonceError,
     NotFoundError,
     NotificationQuery,
     NotificationRepository,
@@ -34,7 +41,6 @@ from notification_hub.storage import (
     StateConflictError,
 )
 
-StubView = Callable[..., tuple[Response, int]]
 JsonObject = Mapping[str, Any]
 
 
@@ -42,23 +48,6 @@ def _error(
     code: str, message: str, status: int, details: Mapping[str, Any] | None = None
 ) -> tuple[Response, int]:
     return jsonify(error={"code": code, "message": message, "details": dict(details or {})}), status
-
-
-def _not_implemented(endpoint: str) -> tuple[Response, int]:
-    """Return the common error envelope while a client endpoint is a stub."""
-    return _error(
-        "not_implemented",
-        "This API endpoint has not been implemented",
-        501,
-        {"endpoint": endpoint},
-    )
-
-
-def _stub(endpoint: str) -> StubView:
-    def view(**_arguments: Any) -> tuple[Response, int]:
-        return _not_implemented(endpoint)
-
-    return view
 
 
 def _json_object(
@@ -225,8 +214,8 @@ def create_app(
 ) -> Flask:
     """Create the HTTP application.
 
-    Producer endpoints are implemented without authentication. Hub/client routes
-    are being implemented ahead of their signed authentication boundary.
+    Producer endpoints are intentionally unauthenticated. Hub/client routes use
+    the configured RFC 9421 public-key authentication boundary.
     The database is opened lazily so route inspection does not touch the default
     user data directory.
     """
@@ -234,6 +223,8 @@ def create_app(
     app = Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = config.request_body_limit_kib * 1024
     app.config["NOTIFICATION_HUB_CONFIG"] = config
+    authenticator = RequestAuthenticator(config.auth)
+    app.extensions["notification_hub_authenticator"] = authenticator
 
     init_lock = threading.Lock()
     state_changed = threading.Condition()
@@ -259,6 +250,42 @@ def create_app(
     def health() -> tuple[Response, int]:
         get_repository()
         return jsonify(status="ok"), 200
+
+    def signed(
+        view: Callable[..., tuple[Response, int]],
+        scope: str | None,
+        *,
+        mutation: bool = False,
+    ) -> Callable[..., tuple[Response, int]]:
+        """Wrap a view with signature, scope, and optional mutation-nonce checks.
+
+        The authenticated principal is stored on Flask's request-local ``g`` so
+        mutation handlers can audit the principal and atomically consume its
+        verified nonce with the business operation.
+        """
+
+        def authenticated_view(**arguments: Any) -> tuple[Response, int]:
+            g.authenticated_principal = authenticator.authenticate(
+                request, scope, require_nonce=mutation
+            )
+            return view(**arguments)
+
+        authenticated_view.__name__ = f"signed_{view.__name__}"
+        return authenticated_view
+
+    def auth_nonces() -> tuple[Response, int]:
+        value = _json_object(allowed={"request_id", "count"}, required={"request_id", "count"})
+        principal: AuthenticatedPrincipal = g.authenticated_principal
+        nonces = get_repository().issue_nonces(
+            principal.key_id,
+            value["request_id"],
+            value["count"],
+            ttl_seconds=config.auth.nonce_ttl_seconds,
+            max_outstanding=config.auth.max_outstanding_nonces_per_key,
+        )
+        return jsonify(
+            nonces=[{"value": item.value, "expires_at": item.expires_at} for item in nonces]
+        ), 200
 
     def notifications_create() -> tuple[Response, int]:
         value = _json_object(
@@ -335,15 +362,15 @@ def create_app(
         if message is not None and not isinstance(message, str):
             raise ValidationError("message must be a string or null")
 
-        # Signed authentication will supply this value once its boundary is
-        # added. Keeping the placeholder server-owned prevents callers from
-        # forging an audit principal in the interim implementation.
+        principal: AuthenticatedPrincipal = g.authenticated_principal
+        assert principal.nonce is not None
         result = get_repository().respond(
             notification_id,
             request_id,
             option_id,
             message,
-            "unauthenticated-client",
+            principal.principal,
+            auth_nonce=(principal.key_id, principal.nonce),
         )
         if result.changed:
             with state_changed:
@@ -363,7 +390,13 @@ def create_app(
             raise ValidationError("notification_ids must be an array of strings")
         if not isinstance(read, bool):
             raise ValidationError("read must be a boolean")
-        notifications, event_seq = get_repository().set_read_state(notification_ids, read)
+        principal: AuthenticatedPrincipal = g.authenticated_principal
+        assert principal.nonce is not None
+        notifications, event_seq = get_repository().set_read_state(
+            notification_ids,
+            read,
+            auth_nonce=(principal.key_id, principal.nonce),
+        )
         if event_seq is not None:
             with state_changed:
                 state_changed.notify_all()
@@ -416,7 +449,7 @@ def create_app(
             has_more=page.has_more,
         ), 200
 
-    implemented_routes: tuple[tuple[str, str, tuple[str, ...], Callable[..., Any]], ...] = (
+    public_routes: tuple[tuple[str, str, tuple[str, ...], Callable[..., Any]], ...] = (
         ("health", "/healthz", ("GET",), health),
         ("notifications_create", "/api/v1/notifications", ("POST",), notifications_create),
         (
@@ -431,31 +464,49 @@ def create_app(
             ("GET",),
             notification_outcome,
         ),
+    )
+    signed_routes: tuple[
+        tuple[str, str, tuple[str, ...], Callable[..., Any], str | None, bool], ...
+    ] = (
+        ("auth_nonces", "/api/v1/auth/nonces", ("POST",), auth_nonces, None, False),
         (
             "notification_response",
             "/api/v1/notifications/<notification_id>/response",
             ("POST",),
             notification_response,
+            "respond",
+            True,
         ),
-        ("read_state", "/api/v1/read-state", ("POST",), read_state),
-        ("notifications_list", "/api/v1/notifications", ("GET",), notifications_list),
+        ("read_state", "/api/v1/read-state", ("POST",), read_state, "read_state", True),
+        (
+            "notifications_list",
+            "/api/v1/notifications",
+            ("GET",),
+            notifications_list,
+            "read",
+            False,
+        ),
         (
             "notification_get",
             "/api/v1/notifications/<notification_id>",
             ("GET",),
             notification_get,
+            "read",
+            False,
         ),
-        ("domains", "/api/v1/domains", ("GET",), domains),
-        ("snapshot", "/api/v1/snapshot", ("GET",), snapshot),
-        ("events", "/api/v1/events", ("GET",), events),
+        ("domains", "/api/v1/domains", ("GET",), domains, "read", False),
+        ("snapshot", "/api/v1/snapshot", ("GET",), snapshot, "read", False),
+        ("events", "/api/v1/events", ("GET",), events, "read", False),
     )
-    stub_routes: tuple[tuple[str, str, tuple[str, ...]], ...] = (
-        ("auth_nonces", "/api/v1/auth/nonces", ("POST",)),
-    )
-    for endpoint, rule, methods, view in implemented_routes:
+    for endpoint, rule, methods, view in public_routes:
         app.add_url_rule(rule, endpoint, view, methods=list(methods))
-    for endpoint, rule, methods in stub_routes:
-        app.add_url_rule(rule, endpoint, _stub(endpoint), methods=list(methods))
+    for endpoint, rule, methods, view, scope, mutation in signed_routes:
+        app.add_url_rule(
+            rule,
+            endpoint,
+            signed(view, scope, mutation=mutation),
+            methods=list(methods),
+        )
 
     @app.errorhandler(BadRequest)
     @app.errorhandler(UnsupportedMediaType)
@@ -465,6 +516,15 @@ def create_app(
     @app.errorhandler(ValidationError)
     def invalid_data(error: ValidationError) -> tuple[Response, int]:
         return _error("invalid_data", str(error), 422)
+
+    @app.errorhandler(AuthenticationError)
+    @app.errorhandler(NonceError)
+    def authentication_failed(error: AuthenticationError | NonceError) -> tuple[Response, int]:
+        return _error("authentication_failed", str(error), 401)
+
+    @app.errorhandler(AuthorizationError)
+    def permission_denied(error: AuthorizationError) -> tuple[Response, int]:
+        return _error("permission_denied", str(error), 403)
 
     @app.errorhandler(NotFoundError)
     def unknown_notification(_error_value: NotFoundError) -> tuple[Response, int]:
@@ -537,6 +597,16 @@ def create_app(
         request_id = request.headers.get("X-Request-ID")
         if request_id is not None:
             response.headers["X-Request-ID"] = request_id
+        principal = getattr(g, "authenticated_principal", None)
+        if principal is not None:
+            app.logger.info(
+                "signed request principal=%r key_id=%r route=%r status=%d request_id=%r",
+                principal.principal,
+                principal.key_id,
+                request.url_rule.rule if request.url_rule is not None else None,
+                response.status_code,
+                request_id,
+            )
         return response
 
     return app

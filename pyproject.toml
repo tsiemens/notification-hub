@@ -5,6 +5,7 @@ description = "A single-user notification and approval hub"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "cryptography>=46,<47",
     "flask>=3.1,<4",
 ]
 
