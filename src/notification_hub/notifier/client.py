@@ -1,37 +1,15 @@
 from __future__ import annotations
 
-import http.client
 import json
-import ssl
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import quote, urlencode, urlsplit
+from urllib.parse import quote, urlencode
 
+from notification_hub.client.errors import HubError, NetworkError, ServerError
+from notification_hub.client.transport import JsonTransport
 from notification_hub.config import RemoteServerConfig
-
-
-class HubError(RuntimeError):
-    """Base class for errors returned by or while contacting the hub."""
-
-
-class NetworkError(HubError):
-    """The hub could not be reached or returned an invalid response."""
-
-
-class ServerError(HubError):
-    """The hub returned an HTTP error response."""
-
-    def __init__(self, status: int, code: str, message: str, details: object = None) -> None:
-        super().__init__(message)
-        self.status = status
-        self.code = code
-        self.details = details
-
-    @property
-    def retryable(self) -> bool:
-        return self.status == 429 or self.status >= 500
 
 
 class WaitTimeout(HubError):
@@ -187,35 +165,8 @@ class NotifierClient:
         headers = {"Accept": "application/json", "X-Request-ID": _request_id()}
         if body is not None:
             headers["Content-Type"] = "application/json"
-        parsed = urlsplit(url)
-        target = parsed.path or "/"
-        if parsed.query:
-            target = f"{target}?{parsed.query}"
-        if parsed.scheme == "https":
-            context = (
-                None if self.config.verify_tls else ssl._create_unverified_context()  # noqa: SLF001
-            )
-            connection: http.client.HTTPConnection = http.client.HTTPSConnection(
-                parsed.hostname,
-                parsed.port,
-                timeout=self.config.connect_timeout_seconds,
-                context=context,
-            )
-        else:
-            connection = http.client.HTTPConnection(
-                parsed.hostname, parsed.port, timeout=self.config.connect_timeout_seconds
-            )
-        try:
-            connection.connect()
-            if connection.sock is not None:
-                connection.sock.settimeout(timeout)
-            connection.request(method, target, body=body, headers=headers)
-            response = connection.getresponse()
-            return response.status, response.read()
-        except (OSError, http.client.HTTPException, TimeoutError) as exc:
-            raise NetworkError(f"could not contact hub: {exc}") from exc
-        finally:
-            connection.close()
+        response = JsonTransport(self.config).send(method, url, body, headers, timeout)
+        return response.status, response.body
 
 
 def _request_id() -> str:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -10,6 +11,7 @@ from urllib.parse import urlsplit
 from notification_hub.domain import Priority
 
 VALID_SCOPES = frozenset({"read", "respond", "read_state"})
+_LOCAL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 
 class ConfigurationError(ValueError):
@@ -343,22 +345,48 @@ def load_client_config(path: Path | None = None) -> ClientConfig:
     }:
         raise ConfigurationError("ui theme or sound setting is invalid")
     views: list[CustomView] = []
-    for entry in data.get("views", []):
+    view_values = data.get("views", [])
+    if not isinstance(view_values, list):
+        raise ConfigurationError("views must be an array of tables")
+    for entry in view_values:
+        if not isinstance(entry, dict):
+            raise ConfigurationError("views entries must be tables")
         _only(entry, {"id", "name", "rules"}, "view")
+        view_id = entry.get("id")
+        name = entry.get("name")
+        if not isinstance(view_id, str) or not _LOCAL_ID.fullmatch(view_id):
+            raise ConfigurationError("view.id must be a valid local identifier")
+        if not isinstance(name, str) or not 1 <= len(name) <= 80:
+            raise ConfigurationError("view.name must contain 1..80 characters")
+        rule_values = entry.get("rules", [])
+        if not isinstance(rule_values, list):
+            raise ConfigurationError("view.rules must be an array of tables")
         rules = []
-        for rule in entry.get("rules", []):
+        for rule in rule_values:
+            if not isinstance(rule, dict):
+                raise ConfigurationError("view.rules entries must be tables")
             _only(rule, {"domain_regex", "sender_regex", "tag_regex"}, "view rule")
+            if not rule:
+                raise ConfigurationError("view rules must contain at least one expression")
+            if any(not isinstance(value, str) for value in rule.values()):
+                raise ConfigurationError("view rule expressions must be strings")
             rules.append(
                 ViewRule(rule.get("domain_regex"), rule.get("sender_regex"), rule.get("tag_regex"))
             )
-        views.append(CustomView(str(entry.get("id", "")), str(entry.get("name", "")), tuple(rules)))
+        views.append(CustomView(view_id, name, tuple(rules)))
+    if len({view.id for view in views}) != len(views):
+        raise ConfigurationError("view ids must be unique")
     try:
         key_id, key_file = auth["key_id"], auth["private_key_file"]
     except KeyError as exc:
         raise ConfigurationError(f"missing client auth setting: {exc.args[0]}") from exc
+    if not isinstance(key_id, str) or not key_id or len(key_id) > 256:
+        raise ConfigurationError("auth.key_id must be a non-empty string of at most 256 characters")
+    if not isinstance(key_file, str) or not key_file:
+        raise ConfigurationError("auth.private_key_file must be a non-empty path string")
     return ClientConfig(
         _remote_server(_table(data, "server")),
-        str(key_id),
+        key_id,
         Path(key_file).expanduser(),
         theme,
         sound,

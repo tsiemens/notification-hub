@@ -14,7 +14,8 @@ without reinstalling:
 uv tool install --editable .
 ```
 
-This installs both `nh-server` and `nh-notifier`; Keep the checkout in place while using the editable installation.
+This installs `nh-server`, `nh-notifier`, and `nh-client-cli`. Keep the checkout
+in place while using the editable installation.
 
 For development, also create the repository-local environment with the test
 and lint dependencies:
@@ -25,11 +26,13 @@ uv sync
 
 ## Development progress
 
-Phases 1 through 3 are implemented: domain models and validation, TOML
+Phases 1 through 4 are implemented: domain models and validation, TOML
 configuration, SQLite migrations and repository operations, retention, the
 complete Flask API, RFC 9421 public-key request authentication, RFC 9530 content
 digests, scope enforcement, transactional single-use mutation nonces, and the
-producer-side `nh-notifier` CLI.
+producer-side `nh-notifier` CLI. Phase 4 adds the reusable signed Python client,
+paginated snapshot and durable event synchronization, and the headless
+`nh-client-cli` inspection and mutation tool.
 Producer create, outcome, and cancellation routes remain intentionally
 unauthenticated as specified in the design.
 
@@ -66,6 +69,32 @@ For the standard approve/deny flow, `approve` adds both choices and waits. It
 exits successfully only when `approve` is selected, making it suitable for
 fail-closed shell gates. See
 [`examples/approval-wrapper.sh`](examples/approval-wrapper.sh).
+
+## Inspecting the hub
+
+Configure a signed client in `~/.config/notification-hub/client.config.toml`:
+
+```toml
+[server]
+url = "https://hub.example"
+
+[auth]
+key_id = "desktop-ui"
+private_key_file = "/path/to/desktop-ui.pem"
+```
+
+The private key may be Ed25519, RSA, P-256, or P-384. Use a dedicated identity;
+do not reuse an SSH key. See [Creating client signing keys](docs/signing-keys.md)
+for generation and installation instructions. List current state, follow the
+event feed, and perform mutations with:
+
+```sh
+nh-client-cli domains
+nh-client-cli list --unread true --json
+nh-client-cli watch --json
+nh-client-cli read NOTIFICATION_ID
+nh-client-cli respond NOTIFICATION_ID approve
+```
 
 ## Testing
 
