@@ -11,6 +11,7 @@ dependencies = [
 
 [project.scripts]
 nh-server = "notification_hub.server.runner:main"
+nh-notifier = "notification_hub.notifier.cli:main"
 
 [build-system]
 requires = ["hatchling"]

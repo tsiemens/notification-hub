@@ -5,6 +5,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from notification_hub.domain import Priority
 
@@ -280,7 +281,21 @@ def _remote_server(data: dict[str, Any]) -> RemoteServerConfig:
         "server",
     )
     url = data.get("url")
-    if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+    try:
+        parsed_url = urlsplit(url) if isinstance(url, str) else None
+        hostname = parsed_url.hostname if parsed_url is not None else None
+        if parsed_url is not None:
+            _ = parsed_url.port  # Validate a configured numeric port.
+    except ValueError as exc:
+        raise ConfigurationError("server.url must be an HTTP(S) URL") from exc
+    if (
+        parsed_url is None
+        or parsed_url.scheme not in {"http", "https"}
+        or not hostname
+        or parsed_url.username is not None
+        or parsed_url.fragment
+        or parsed_url.query
+    ):
         raise ConfigurationError("server.url must be an HTTP(S) URL")
     return RemoteServerConfig(
         url.rstrip("/"),
@@ -300,10 +315,13 @@ def load_notifier_config(path: Path | None = None) -> NotifierConfig:
         priority = Priority(defaults.get("priority", "normal"))
     except ValueError as exc:
         raise ConfigurationError("defaults.priority is invalid") from exc
+    sender = defaults.get("sender", "nh-notifier")
+    if not isinstance(sender, str) or not sender:
+        raise ConfigurationError("defaults.sender must be a non-empty string")
     return NotifierConfig(
         _remote_server(_table(data, "server")),
         _boolean(defaults.get("domain_from_hostname", True), "defaults.domain_from_hostname"),
-        defaults.get("sender", "nh-notifier"),
+        sender,
         priority,
     )
 

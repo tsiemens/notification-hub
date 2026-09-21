@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from notification_hub.config import ConfigurationError, load_server_config
+from notification_hub.config import ConfigurationError, load_notifier_config, load_server_config
 
 
 def write_config(root: Path, content: str, mode: int = 0o600) -> Path:
@@ -68,3 +68,35 @@ event_history_days = 7
 """
     with pytest.raises(ConfigurationError):
         load_server_config(write_config(tmp_path, content))
+
+
+def test_loads_notifier_configuration(tmp_path: Path) -> None:
+    path = tmp_path / "notifier.toml"
+    path.write_text(
+        """[server]
+url = "https://hub.example/base"
+connect_timeout_seconds = 2
+
+[defaults]
+domain_from_hostname = false
+sender = "build-agent"
+priority = "urgent"
+""",
+        encoding="utf-8",
+    )
+    config = load_notifier_config(path)
+    assert config.server.url == "https://hub.example/base"
+    assert config.server.connect_timeout_seconds == 2
+    assert config.domain_from_hostname is False
+    assert config.sender == "build-agent"
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["http://", "ftp://hub.example", "http://user@hub.example", "http://hub.example:nope"],
+)
+def test_rejects_invalid_notifier_url(tmp_path: Path, url: str) -> None:
+    path = tmp_path / "notifier.toml"
+    path.write_text(f'[server]\nurl = "{url}"\n', encoding="utf-8")
+    with pytest.raises(ConfigurationError):
+        load_notifier_config(path)
