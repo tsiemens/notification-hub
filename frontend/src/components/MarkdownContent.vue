@@ -5,15 +5,25 @@ import { computed, ref, watch } from "vue";
 
 import type { DesktopBridge } from "@/api/bridge";
 
-const props = withDefaults(defineProps<{ source: string; bridge: DesktopBridge; label: string; initialRaw?: boolean }>(), {
+const props = withDefaults(defineProps<{
+  source: string;
+  bridge: DesktopBridge;
+  label: string;
+  initialRaw?: boolean;
+  raw?: boolean;
+  showToggle?: boolean;
+}>(), {
   initialRaw: false,
+  raw: undefined,
+  showToggle: true,
 });
-const raw = ref(props.initialRaw);
+const localRaw = ref(props.initialRaw);
 const locallyToggled = ref(false);
 const linkError = ref<string | null>(null);
+const displayRaw = computed(() => props.raw ?? localRaw.value);
 
 watch(() => props.initialRaw, (value) => {
-  if (!locallyToggled.value) raw.value = value;
+  if (!locallyToggled.value) localRaw.value = value;
 });
 
 function allowedUrl(value: string): boolean {
@@ -72,10 +82,16 @@ function activateLinkFromKeyboard(event: KeyboardEvent): void {
 
 <template>
   <div class="markdown-block">
-    <button class="text-button raw-toggle" type="button" :aria-pressed="raw" @click="locallyToggled = true; raw = !raw">
-      {{ raw ? "Show rendered" : "Show source" }} for {{ label }}
+    <button
+      v-if="showToggle"
+      class="text-button raw-toggle"
+      type="button"
+      :aria-pressed="displayRaw"
+      @click="locallyToggled = true; localRaw = !localRaw"
+    >
+      {{ displayRaw ? "Show rendered" : "Show source" }} for {{ label }}
     </button>
-    <pre v-if="raw" class="raw-source">{{ source }}</pre>
+    <pre v-if="displayRaw" class="raw-source">{{ source }}</pre>
     <!-- Audited boundary: marked has raw HTML disabled above and DOMPurify applies an explicit allowlist. -->
     <div v-else class="markdown" @click="activateLink" @keydown="activateLinkFromKeyboard" v-html="rendered" />
     <p v-if="linkError" class="inline-error" role="alert">{{ linkError }}</p>

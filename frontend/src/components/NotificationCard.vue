@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 
 import type { DesktopBridge } from "@/api/bridge";
 import type { Notification, ResponseOption } from "@/model/protocol";
@@ -21,12 +21,14 @@ const emit = defineEmits<{
 }>();
 
 const detailsOpen = ref(false);
-const editing = ref<ResponseOption | null>(null);
 const responseMessage = ref("");
-const editor = ref<HTMLTextAreaElement | null>(null);
 const validationError = ref<string | null>(null);
+const raw = ref(props.rawMarkdown ?? false);
+const rawLocallyToggled = ref(false);
 const domainAccent = computed(() => identityAccentIndex(props.notification.domain));
 const senderAccent = computed(() => identityAccentIndex(props.notification.sender));
+const hasMarkdown = computed(() => Boolean(props.notification.message) || props.notification.details !== null);
+const hasMessageField = computed(() => props.notification.response_options.some((option) => option.message_mode !== "none"));
 const age = computed(() => {
   const seconds = Math.max(0, Math.floor((props.now - Date.parse(props.notification.created_at)) / 1000));
   if (seconds < 60) return "just now";
@@ -42,34 +44,38 @@ const responseLabel = computed(() => {
 });
 
 watch(() => props.notification.response_state, (state) => {
-  if (state !== "pending") editing.value = null;
+  if (state !== "pending") responseMessage.value = "";
+});
+watch(() => props.rawMarkdown, (value) => {
+  if (!rawLocallyToggled.value) raw.value = value ?? false;
+});
+watch(() => props.notification.id, () => {
+  detailsOpen.value = false;
+  responseMessage.value = "";
+  validationError.value = null;
+  rawLocallyToggled.value = false;
+  raw.value = props.rawMarkdown ?? false;
 });
 
-async function choose(option: ResponseOption): Promise<void> {
+function choose(option: ResponseOption): void {
   validationError.value = null;
   if (option.message_mode === "none") {
     emit("respond", props.notification, option, null);
     return;
   }
-  editing.value = option;
-  responseMessage.value = "";
-  await nextTick();
-  editor.value?.focus();
-}
-
-function submit(): void {
-  if (!editing.value) return;
-  if (editing.value.message_mode === "required" && responseMessage.value.length === 0) {
-    validationError.value = "A response message is required.";
-    editor.value?.focus();
-    return;
-  }
   if (responseMessage.value.length > 16 * 1024) {
     validationError.value = "The response message must be at most 16 KiB.";
-    editor.value?.focus();
     return;
   }
-  emit("respond", props.notification, editing.value, responseMessage.value || null);
+  emit("respond", props.notification, option, responseMessage.value || null);
+}
+
+function responseModeLabel(option: ResponseOption): string {
+  if (option.message_mode === "none") return "Ignores the response message";
+  if (option.message_mode === "optional") return "Uses the response message when provided";
+  return responseMessage.value.length === 0
+    ? "Requires a response message; enter a message to enable this choice"
+    : "Requires and sends the response message";
 }
 </script>
 
@@ -87,64 +93,91 @@ function submit(): void {
         <time :datetime="notification.created_at">{{ age }}</time>
         <span v-if="notification.read_at === null" class="unread-label">Unread</span>
       </div>
-      <button
-        type="button"
-        class="text-button"
-        :disabled="pending || !connected"
-        @click="emit('read', notification, notification.read_at === null)"
-      >
-        Mark {{ notification.read_at === null ? "read" : "unread" }}
-      </button>
+      <div class="card-actions" aria-label="Card actions">
+        <span class="icon-action">
+          <button
+            type="button"
+            class="icon-button read-toggle"
+            :aria-label="`Mark ${notification.read_at === null ? 'read' : 'unread'}`"
+            :aria-describedby="`read-tooltip-${notification.id}`"
+            :disabled="pending || !connected"
+            @click="emit('read', notification, notification.read_at === null)"
+          >
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <path v-if="notification.read_at === null" d="M3 5.5h14v9H3zM3.5 6l6.5 5 6.5-5" />
+              <path v-else d="M3 5.5h14v9H3zM3.5 6l6.5 5 6.5-5M6 3.5h8" />
+            </svg>
+          </button>
+          <span :id="`read-tooltip-${notification.id}`" class="action-tooltip" role="tooltip">Mark {{ notification.read_at === null ? "read" : "unread" }}</span>
+        </span>
+        <span v-if="hasMarkdown" class="icon-action">
+          <button
+            type="button"
+            class="icon-button source-toggle"
+            :aria-label="raw ? 'Show rendered content' : 'Show source content'"
+            :aria-describedby="`source-tooltip-${notification.id}`"
+            :aria-pressed="raw"
+            @click="rawLocallyToggled = true; raw = !raw"
+          >
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 5-4 5 4 5M13 5l4 5-4 5M11.5 3.5l-3 13" /></svg>
+          </button>
+          <span :id="`source-tooltip-${notification.id}`" class="action-tooltip" role="tooltip">{{ raw ? "Show rendered content" : "Show source content" }}</span>
+        </span>
+      </div>
     </div>
     <h2 :id="`summary-${notification.id}`">{{ notification.summary }}</h2>
-    <MarkdownContent v-if="notification.message" :source="notification.message" :bridge="bridge" label="message" :initial-raw="rawMarkdown" />
+    <MarkdownContent v-if="notification.message" :source="notification.message" :bridge="bridge" label="message" :raw="raw" :show-toggle="false" />
     <button
       v-if="notification.details !== null"
       type="button"
       class="details-toggle"
       :aria-expanded="detailsOpen"
+      :aria-controls="`details-${notification.id}`"
       @click="detailsOpen = !detailsOpen"
     >
-      {{ detailsOpen ? "Hide details" : "Show details" }}
+      <span class="disclosure-chevron" aria-hidden="true">{{ detailsOpen ? "⌃" : "⌄" }}</span>
+      <span class="details-label">Details</span>
+      <span class="details-divider" aria-hidden="true" />
     </button>
-    <MarkdownContent
-      v-if="detailsOpen && notification.details !== null"
-      :source="notification.details"
-      :bridge="bridge"
-      label="details"
-      :initial-raw="rawMarkdown"
-    />
+    <div v-if="detailsOpen && notification.details !== null" :id="`details-${notification.id}`" class="details-content">
+      <MarkdownContent :source="notification.details" :bridge="bridge" label="details" :raw="raw" :show-toggle="false" />
+    </div>
     <div v-if="notification.tags.length" class="tags" aria-label="Tags">
       <span v-for="tag in notification.tags" :key="tag">{{ tag }}</span>
     </div>
 
     <section v-if="notification.response_state === 'pending'" class="response-controls" aria-label="Response options">
+      <div v-if="hasMessageField" class="response-editor">
+        <label class="response-message-label" :for="`response-${notification.id}`">Response Message</label>
+        <textarea
+          :id="`response-${notification.id}`"
+          v-model="responseMessage"
+          maxlength="16384"
+          :disabled="pending || !connected"
+          :aria-describedby="`response-message-help-${notification.id}`"
+          @input="validationError = null"
+        />
+        <small :id="`response-message-help-${notification.id}`">Choices indicate whether they ignore, optionally use, or require this message.</small>
+      </div>
       <div class="response-buttons">
         <button
           v-for="option in notification.response_options"
           :key="option.id"
           type="button"
           :class="`response-${option.appearance}`"
-          :disabled="pending || !connected"
+          :disabled="pending || !connected || (option.message_mode === 'required' && responseMessage.length === 0)"
+          :aria-label="`${option.label}. ${responseModeLabel(option)}`"
+          :title="responseModeLabel(option)"
           @click="choose(option)"
-        >{{ option.label }}</button>
+        >
+          <span class="response-mode-icon" aria-hidden="true">
+            <svg v-if="option.message_mode === 'none'" viewBox="0 0 20 20"><path d="M4 5h12v8H8l-4 3zM3 3l14 14" /></svg>
+            <svg v-else-if="option.message_mode === 'optional'" viewBox="0 0 20 20"><path d="M4 4h12v9H8l-4 3zM7 7h6M7 10h4" /><circle cx="15.5" cy="15.5" r="2.5" /></svg>
+            <svg v-else viewBox="0 0 20 20"><path d="M4 4h12v9H8l-4 3zM7 7h6M7 10h4M15.5 14v4M13.5 16h4" /></svg>
+          </span>
+          <span>{{ option.label }}</span>
+        </button>
       </div>
-      <form v-if="editing" @submit.prevent="submit">
-        <label :for="`response-${notification.id}`">
-          Message<span v-if="editing.message_mode === 'optional'"> (optional)</span>
-        </label>
-        <textarea
-          :id="`response-${notification.id}`"
-          ref="editor"
-          v-model="responseMessage"
-          maxlength="16385"
-          :disabled="pending"
-        />
-        <div class="editor-actions">
-          <button type="submit" :disabled="pending || !connected">Submit {{ editing.label }}</button>
-          <button type="button" :disabled="pending" @click="editing = null">Cancel</button>
-        </div>
-      </form>
       <p v-if="pending" class="pending" role="status">Submitting…</p>
       <p v-if="validationError" class="inline-error" role="alert">{{ validationError }}</p>
     </section>
