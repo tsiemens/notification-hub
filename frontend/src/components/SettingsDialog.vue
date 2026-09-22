@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { onMounted, ref } from "vue";
 
 import type { DesktopBridge } from "@/api/bridge";
 import {
@@ -25,7 +25,17 @@ function cloneSettings(settings: ClientSettings): ClientSettings {
 const draft = ref<ClientSettings>(cloneSettings(props.settings));
 const saving = ref(false);
 const error = ref<string | null>(null);
+const closeButton = ref<HTMLButtonElement | null>(null);
 let nextId = 1;
+
+onMounted(() => closeButton.value?.focus());
+
+function closeFromKeyboard(event: KeyboardEvent): void {
+  if (event.key !== "Escape" || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey || saving.value) return;
+  event.stopPropagation();
+  event.preventDefault();
+  emit("close");
+}
 
 function uniqueViewId(): string {
   let id: string;
@@ -113,10 +123,10 @@ async function save(): Promise<void> {
 
 <template>
   <div class="modal-backdrop">
-    <section class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <section class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" @keydown="closeFromKeyboard">
       <header class="settings-heading">
         <h2 id="settings-title">Settings</h2>
-        <button type="button" aria-label="Close settings" :disabled="saving" @click="emit('close')">×</button>
+        <button ref="closeButton" type="button" aria-label="Close settings" :disabled="saving" @click="emit('close')">×</button>
       </header>
 
       <form @submit.prevent="save">

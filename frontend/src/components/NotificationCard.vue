@@ -14,12 +14,15 @@ const props = defineProps<{
   connected: boolean;
   now: number;
   rawMarkdown?: boolean;
+  selected?: boolean;
 }>();
 const emit = defineEmits<{
   read: [notification: Notification, read: boolean];
   respond: [notification: Notification, option: ResponseOption, message: string | null];
+  select: [notification: Notification];
 }>();
 
+const card = ref<HTMLElement | null>(null);
 const detailsOpen = ref(false);
 const responseMessage = ref("");
 const validationError = ref<string | null>(null);
@@ -77,13 +80,50 @@ function responseModeLabel(option: ResponseOption): string {
     ? "Requires a response message; enter a message to enable this choice"
     : "Requires and sends the response message";
 }
+
+function focusCard(scroll = true): void {
+  card.value?.focus({ preventScroll: true });
+  if (scroll) card.value?.scrollIntoView?.({ block: "nearest" });
+}
+
+function toggleDetails(): boolean {
+  if (props.notification.details === null) return false;
+  detailsOpen.value = !detailsOpen.value;
+  return true;
+}
+
+function toggleRead(): boolean {
+  if (props.pending || !props.connected) return false;
+  emit("read", props.notification, props.notification.read_at === null);
+  return true;
+}
+
+function cancelResponseEditor(): void {
+  responseMessage.value = "";
+  validationError.value = null;
+  focusCard(false);
+}
+
+function handleResponseEscape(event: KeyboardEvent): void {
+  if (event.key !== "Escape" || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+  event.stopPropagation();
+  event.preventDefault();
+  cancelResponseEditor();
+}
+
+defineExpose({ focusCard, toggleDetails, toggleRead });
 </script>
 
 <template>
   <article
-    :class="{ unread: notification.read_at === null }"
+    ref="card"
+    :class="{ unread: notification.read_at === null, selected }"
     :aria-labelledby="`summary-${notification.id}`"
+    :aria-current="selected ? 'true' : undefined"
     :data-notification-id="notification.id"
+    :tabindex="selected ? 0 : -1"
+    @click="emit('select', notification)"
+    @focusin="emit('select', notification)"
   >
     <div class="card-heading">
       <div class="metadata">
@@ -101,7 +141,7 @@ function responseModeLabel(option: ResponseOption): string {
             :aria-label="`Mark ${notification.read_at === null ? 'read' : 'unread'}`"
             :aria-describedby="`read-tooltip-${notification.id}`"
             :disabled="pending || !connected"
-            @click="emit('read', notification, notification.read_at === null)"
+            @click="toggleRead"
           >
             <svg viewBox="0 0 20 20" aria-hidden="true">
               <path v-if="notification.read_at === null" d="M3 5.5h14v9H3zM3.5 6l6.5 5 6.5-5" />
@@ -133,7 +173,7 @@ function responseModeLabel(option: ResponseOption): string {
       class="details-toggle"
       :aria-expanded="detailsOpen"
       :aria-controls="`details-${notification.id}`"
-      @click="detailsOpen = !detailsOpen"
+      @click="toggleDetails"
     >
       <span class="disclosure-chevron" aria-hidden="true">{{ detailsOpen ? "⌃" : "⌄" }}</span>
       <span class="details-label">Details</span>
@@ -146,7 +186,13 @@ function responseModeLabel(option: ResponseOption): string {
       <span v-for="tag in notification.tags" :key="tag">{{ tag }}</span>
     </div>
 
-    <section v-if="notification.response_state === 'pending'" class="response-controls" aria-label="Response options">
+    <section
+      v-if="notification.response_state === 'pending'"
+      class="response-controls"
+      aria-label="Response options"
+      data-response-form
+      @keydown="handleResponseEscape"
+    >
       <div v-if="hasMessageField" class="response-editor">
         <label class="response-message-label" :for="`response-${notification.id}`">Response Message</label>
         <textarea

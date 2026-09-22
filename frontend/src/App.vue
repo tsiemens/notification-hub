@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import { desktopBridge } from "@/api/bridge";
+import KeyboardHelpDialog from "@/components/KeyboardHelpDialog.vue";
 import NotificationCard from "@/components/NotificationCard.vue";
 import SettingsDialog from "@/components/SettingsDialog.vue";
 import type { Notification, ResponseOption } from "@/model/protocol";
@@ -21,7 +22,11 @@ const showNew = ref(false);
 const now = ref(Date.now());
 const settings = ref<ClientSettings | null>(null);
 const settingsOpen = ref(false);
+const helpOpen = ref(false);
 const settingsError = ref<string | null>(null);
+const selectedNotificationId = ref<string | null>(null);
+const cardRefs = new Map<string, InstanceType<typeof NotificationCard>>();
+let modalReturnFocus: HTMLElement | null = null;
 const renderedNotifications = computed(() => notifications.value.slice(0, windowSize.value));
 const connected = computed(() => store.state.connection.state === "connected");
 const unreadIds = computed(() => notifications.value.filter((item) => item.read_at === null).map((item) => item.id));
@@ -38,6 +43,10 @@ const connectionMessage = computed(() => {
 let stopped = false;
 let clock = 0;
 let removeThemeListener = (): void => undefined;
+let composing = false;
+
+function beginComposition(): void { composing = true; }
+function endComposition(): void { composing = false; }
 
 async function loadSettings(): Promise<void> {
   try {
@@ -52,7 +61,7 @@ async function loadSettings(): Promise<void> {
 function settingsSaved(saved: ClientSettings): void {
   settings.value = saved;
   store.setSettings(saved);
-  settingsOpen.value = false;
+  closeSettings();
 }
 
 async function synchronize(): Promise<void> {
@@ -67,11 +76,110 @@ async function synchronize(): Promise<void> {
 function resetFeedPosition(): void {
   windowSize.value = 50;
   showNew.value = false;
-  nextTick(() => main.value?.scrollTo({ top: 0 }));
+  nextTick(() => main.value?.scrollTo?.({ top: 0 }));
 }
 
 function select(selection: FeedSelection): void {
   store.select(selection);
+}
+
+function setCardRef(id: string, instance: unknown): void {
+  if (instance) cardRefs.set(id, instance as InstanceType<typeof NotificationCard>);
+  else cardRefs.delete(id);
+}
+
+function selectCard(id: string, focus = false): void {
+  const index = notifications.value.findIndex((notification) => notification.id === id);
+  if (index < 0) return;
+  selectedNotificationId.value = id;
+  if (index >= windowSize.value) windowSize.value = Math.ceil((index + 1) / 50) * 50;
+  if (focus) nextTick(() => cardRefs.get(id)?.focusCard());
+}
+
+function rememberModalFocus(): void {
+  const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  modalReturnFocus = active && active !== document.body && active !== document.documentElement ? active : null;
+}
+
+function restoreModalFocus(): void {
+  const target = modalReturnFocus;
+  modalReturnFocus = null;
+  nextTick(() => {
+    if (target?.isConnected) target.focus();
+    else if (selectedNotificationId.value) cardRefs.get(selectedNotificationId.value)?.focusCard(false);
+  });
+}
+
+function openSettings(): void {
+  rememberModalFocus();
+  settingsOpen.value = true;
+}
+
+function closeSettings(): void {
+  settingsOpen.value = false;
+  restoreModalFocus();
+}
+
+function openHelp(): void {
+  rememberModalFocus();
+  helpOpen.value = true;
+}
+
+function closeHelp(): void {
+  helpOpen.value = false;
+  restoreModalFocus();
+}
+
+function shortcutTargetIsEditable(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.matches("input, textarea, select")
+    || target.isContentEditable
+    || target.closest("[contenteditable]:not([contenteditable='false']), [data-response-form]") !== null;
+}
+
+function handleShortcut(event: KeyboardEvent): void {
+  if (composing || event.isComposing || event.ctrlKey || event.altKey || event.metaKey) return;
+
+  if (helpOpen.value || settingsOpen.value) {
+    if (event.key === "Escape" && !event.shiftKey) {
+      event.preventDefault();
+      if (helpOpen.value) closeHelp();
+      else closeSettings();
+    }
+    return;
+  }
+
+  if (shortcutTargetIsEditable(event.target)) return;
+  if (event.shiftKey && event.key !== "?") return;
+
+  const ids = notifications.value.map((notification) => notification.id);
+  if (event.key === "?") {
+    event.preventDefault();
+    openHelp();
+    return;
+  }
+  if (!ids.length) return;
+
+  const current = selectedNotificationId.value ? ids.indexOf(selectedNotificationId.value) : -1;
+  if (event.key === "j" || event.key === "k") {
+    const next = current < 0
+      ? (event.key === "j" ? 0 : ids.length - 1)
+      : Math.max(0, Math.min(ids.length - 1, current + (event.key === "j" ? 1 : -1)));
+    event.preventDefault();
+    selectCard(ids[next], true);
+    return;
+  }
+  if (event.key === "Home") {
+    event.preventDefault();
+    selectCard(ids[0], true);
+    return;
+  }
+  if ((event.key === "Enter" || event.key === "m") && !event.repeat && current >= 0) {
+    event.preventDefault();
+    const card = cardRefs.get(ids[current]);
+    if (event.key === "Enter") card?.toggleDetails();
+    else card?.toggleRead();
+  }
 }
 
 async function showOlder(): Promise<void> {
@@ -81,7 +189,7 @@ async function showOlder(): Promise<void> {
 
 function returnToNewest(): void {
   showNew.value = false;
-  main.value?.scrollTo({ top: 0, behavior: "smooth" });
+  main.value?.scrollTo?.({ top: 0, behavior: "smooth" });
 }
 
 async function setRead(notification: Notification, read: boolean): Promise<void> {
@@ -141,11 +249,27 @@ watch(() => notifications.value[0]?.id, (head, oldHead) => {
       if (newTop !== undefined) element.scrollTop += newTop - oldTop;
     });
   } else {
-    nextTick(() => element?.scrollTo({ top: 0 }));
+    nextTick(() => element?.scrollTo?.({ top: 0 }));
   }
 });
 
 watch([() => store.state.selection, () => store.state.hideRead], resetFeedPosition);
+watch(() => notifications.value.map((notification) => notification.id), (ids, oldIds = []) => {
+  if (!ids.length) {
+    selectedNotificationId.value = null;
+    return;
+  }
+  const selected = selectedNotificationId.value;
+  if (selected && ids.includes(selected)) return;
+  const focusedCard = document.activeElement instanceof HTMLElement
+    ? document.activeElement.closest<HTMLElement>("article[data-notification-id]")
+    : null;
+  const restoreFocus = focusedCard?.dataset.notificationId === selected;
+  const oldIndex = selected ? oldIds.indexOf(selected) : 0;
+  const replacement = ids[Math.min(Math.max(oldIndex, 0), ids.length - 1)];
+  selectedNotificationId.value = replacement;
+  if (restoreFocus) nextTick(() => cardRefs.get(replacement)?.focusCard());
+}, { immediate: true });
 watch(() => settings.value?.theme, (theme) => {
   if (!theme) return;
   removeThemeListener();
@@ -153,6 +277,9 @@ watch(() => settings.value?.theme, (theme) => {
 });
 
 onMounted(() => {
+  window.addEventListener("keydown", handleShortcut);
+  window.addEventListener("compositionstart", beginComposition);
+  window.addEventListener("compositionend", endComposition);
   void loadSettings();
   void synchronize();
   clock = window.setInterval(() => { now.value = Date.now(); }, 60_000);
@@ -161,6 +288,10 @@ onBeforeUnmount(() => {
   stopped = true;
   window.clearInterval(clock);
   removeThemeListener();
+  window.removeEventListener("keydown", handleShortcut);
+  window.removeEventListener("compositionstart", beginComposition);
+  window.removeEventListener("compositionend", endComposition);
+  cardRefs.clear();
 });
 </script>
 
@@ -186,7 +317,8 @@ onBeforeUnmount(() => {
           </svg>
           <span class="connection-popover" role="tooltip">{{ connectionMessage }}</span>
         </div>
-        <button type="button" :disabled="!settings" @click="settingsOpen = true">Settings</button>
+        <button type="button" :disabled="!settings" @click="openSettings">Settings</button>
+        <button type="button" aria-label="Keyboard shortcuts" @click="openHelp">?</button>
       </div>
     </header>
     <p v-if="fatal" class="fatal" role="alert">{{ fatal }}</p>
@@ -239,14 +371,18 @@ onBeforeUnmount(() => {
           :connected="connected"
           :now="now"
           :raw-markdown="settings?.raw_markdown ?? false"
+          :selected="selectedNotificationId === notification.id"
+          :ref="(instance) => setCardRef(notification.id, instance)"
           @read="setRead"
           @respond="respond"
+          @select="selectCard(notification.id)"
         />
         <button v-if="renderedNotifications.length < notifications.length" type="button" class="show-older" @click="showOlder">
           Show older notifications ({{ notifications.length - renderedNotifications.length }} remaining)
         </button>
       </main>
     </div>
-    <SettingsDialog v-if="settingsOpen && settings" :settings="settings" :bridge="desktopBridge" @close="settingsOpen = false" @saved="settingsSaved" />
+    <SettingsDialog v-if="settingsOpen && settings" :settings="settings" :bridge="desktopBridge" @close="closeSettings" @saved="settingsSaved" />
+    <KeyboardHelpDialog v-if="helpOpen" @close="closeHelp" />
   </div>
 </template>

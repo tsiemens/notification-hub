@@ -111,6 +111,25 @@ describe("notification card", () => {
     ]);
   });
 
+  it("cancels a local response editor with Escape without submitting", async () => {
+    const wrapper = mount(NotificationCard, {
+      attachTo: document.body,
+      props: {
+        notification: item([modes.optional, modes.required]), bridge: api, pending: false,
+        connected: true, now: Date.parse("2026-01-01T02:00:00Z"), selected: true,
+      },
+    });
+    const editor = wrapper.get("textarea");
+    await editor.setValue("do not send");
+    (editor.element as HTMLTextAreaElement).focus();
+    await editor.trigger("keydown", { key: "Escape" });
+
+    expect((editor.element as HTMLTextAreaElement).value).toBe("");
+    expect(document.activeElement).toBe(wrapper.element);
+    expect(wrapper.emitted("respond")).toBeUndefined();
+    wrapper.unmount();
+  });
+
   it("disables all mutations and the shared field while pending or offline", () => {
     for (const props of [{ pending: true, connected: true }, { pending: false, connected: false }]) {
       const wrapper = mountCard(item([modes.optional, modes.required]), props);

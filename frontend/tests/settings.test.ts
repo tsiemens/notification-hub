@@ -45,6 +45,15 @@ describe("settings contract", () => {
     expect(original.hide_read).toBe(false);
   });
 
+  it("focuses the close control and closes with Escape", async () => {
+    const wrapper = mount(SettingsDialog, { attachTo: document.body, props: { settings: original, bridge: bridge() } });
+    await flushPromises();
+    expect(document.activeElement).toBe(wrapper.get('button[aria-label="Close settings"]').element);
+    await wrapper.get("select").trigger("keydown", { key: "Escape" });
+    expect(wrapper.emitted("close")).toHaveLength(1);
+    wrapper.unmount();
+  });
+
   it("adopts only the canonical settings returned after a successful save", async () => {
     const canonical = { ...original, theme: "dark" as const, views: [] };
     const update = vi.fn(async () => ({ ok: true as const, settings: canonical }));
