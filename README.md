@@ -33,6 +33,10 @@ digests, scope enforcement, transactional single-use mutation nonces, and the
 producer-side `nh-notifier` CLI. Phase 4 adds the reusable signed Python client,
 paginated snapshot and durable event synchronization, and the headless
 `nh-client-cli` inspection and mutation tool.
+Phase 5 desktop-client work is underway. The GTK launcher, revisioned Python
+bridge/controller, Vue synchronization shell, and production asset build are
+available; the complete notification controls and hardened Markdown renderer
+are still in progress.
 Producer create, outcome, and cancellation routes remain intentionally
 unauthenticated as specified in the design.
 
@@ -96,6 +100,33 @@ nh-client-cli read NOTIFICATION_ID
 nh-client-cli respond NOTIFICATION_ID approve
 ```
 
+## Desktop client development
+
+Install the optional GTK desktop runtime and launch the packaged frontend with
+the same signed-client configuration:
+
+```sh
+uv sync --extra gui
+uv run nh-client --config /path/to/client.config.toml
+```
+
+The Linux runtime requires GTK and WebKitGTK libraries supplied by the host
+distribution. The launcher explicitly uses pywebview's GTK backend and does not
+fall back to a general-purpose browser.
+
+For frontend development, use Node.js 22 or newer:
+
+```sh
+cd frontend
+npm ci
+npm run dev
+```
+
+The Vite development server uses an in-browser fake bridge. A production build
+writes relative assets to `src/notification_hub/gui/web`, where the Python
+launcher loads them through package resources. Run `npm run verify` to type
+check, test, and rebuild those assets.
+
 ## Testing
 
 Run the tests with:
@@ -104,4 +135,5 @@ Run the tests with:
 uv run ruff check .
 uv run ruff format --check .
 uv run pytest
+cd frontend && npm run verify
 ```

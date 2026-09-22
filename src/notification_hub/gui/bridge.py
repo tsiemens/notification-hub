@@ -1,0 +1,151 @@
+from __future__ import annotations
+
+import webbrowser
+from collections.abc import Callable
+from typing import Any
+from urllib.parse import urlsplit
+
+from notification_hub.client import NetworkError, ProtocolError, ServerError
+from notification_hub.domain import ResponseState, ValidationError
+
+from .controller import GuiController
+
+MAX_NOTIFICATION_IDS = 10_000
+MAX_RESPONSE_MESSAGE = 16 * 1024
+
+
+class GuiBridge:
+    """Small JSON-compatible API exposed to the local webview."""
+
+    def __init__(
+        self,
+        controller: GuiController,
+        *,
+        external_opener: Callable[[str], object] = webbrowser.open,
+    ) -> None:
+        self._controller = controller
+        self._external_opener = external_opener
+
+    def get_initial_state(self) -> dict[str, Any]:
+        return self._controller.get_initial_state()
+
+    def get_updates(self, after_revision: object) -> dict[str, Any]:
+        if (
+            isinstance(after_revision, bool)
+            or not isinstance(after_revision, int)
+            or after_revision < 0
+        ):
+            raise ValueError("after_revision must be a non-negative integer")
+        return self._controller.get_updates(after_revision)
+
+    def set_read_state(self, notification_ids: object, read: object) -> dict[str, Any]:
+        try:
+            ids = self._notification_ids(notification_ids)
+            if not isinstance(read, bool):
+                raise ValueError("read must be boolean")
+            result = self._controller.set_read_state(ids, read)
+            return {"ok": True, **result.to_dict()}
+        except (ValueError, NetworkError, ProtocolError, ServerError) as exc:
+            return self._error(exc)
+
+    def respond(
+        self, notification_id: object, option_id: object, message: object
+    ) -> dict[str, Any]:
+        try:
+            notification_id = self._identifier(notification_id, "notification_id")
+            option_id = self._identifier(option_id, "option_id")
+            if message is not None and not isinstance(message, str):
+                raise ValueError("message must be a string or null")
+            if isinstance(message, str) and len(message) > MAX_RESPONSE_MESSAGE:
+                raise ValueError("message must be at most 16 KiB")
+            notification = self._controller.notification(notification_id)
+            if notification is None:
+                raise ValueError("notification does not exist in synchronized state")
+            if notification.response_state is not ResponseState.PENDING:
+                raise ValueError("notification is not awaiting a response")
+            option = next(
+                (item for item in notification.response_options if item.id == option_id), None
+            )
+            if option is None:
+                raise ValueError("option does not exist for this notification")
+            option.validate_message(message)
+            result = self._controller.respond(notification_id, option_id, message)
+            return {"ok": True, **result.to_dict()}
+        except (ValueError, ValidationError, NetworkError, ProtocolError, ServerError) as exc:
+            return self._error(exc)
+
+    def open_external(self, url: object) -> dict[str, Any]:
+        try:
+            validated = self._external_url(url)
+            opened = self._external_opener(validated)
+            if opened is False:
+                return self._failure("open_failed", "The system browser could not be opened.", True)
+            return {"ok": True}
+        except ValueError as exc:
+            return self._error(exc)
+
+    @staticmethod
+    def _identifier(value: object, name: str) -> str:
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"{name} must be a non-empty string")
+        return value
+
+    @classmethod
+    def _notification_ids(cls, value: object) -> list[str]:
+        if not isinstance(value, list) or not value:
+            raise ValueError("notification_ids must be a non-empty list")
+        if len(value) > MAX_NOTIFICATION_IDS:
+            raise ValueError("notification_ids exceeds the retained-state limit")
+        ids = [cls._identifier(item, "notification id") for item in value]
+        if len(set(ids)) != len(ids):
+            raise ValueError("notification_ids must be unique")
+        return ids
+
+    @staticmethod
+    def _external_url(value: object) -> str:
+        if not isinstance(value, str):
+            raise ValueError("url must be a string")
+        try:
+            parsed = urlsplit(value)
+            hostname = parsed.hostname
+            _ = parsed.port
+        except ValueError as exc:
+            raise ValueError("url must be an absolute HTTP(S) URL") from exc
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not hostname
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            raise ValueError("url must be an absolute HTTP(S) URL")
+        return value
+
+    @classmethod
+    def _error(cls, error: Exception) -> dict[str, Any]:
+        if isinstance(error, ServerError):
+            extra: dict[str, Any] = {}
+            if error.code == "already_answered" and error.notification is not None:
+                extra["notification"] = error.notification.to_dict()
+            return cls._failure(error.code, cls._server_message(error), error.retryable, **extra)
+        if isinstance(error, NetworkError):
+            return cls._failure("offline", "The server is unavailable. Try again later.", True)
+        if isinstance(error, ProtocolError):
+            return cls._failure("protocol_error", "The server returned an invalid response.", False)
+        return cls._failure("invalid_request", str(error), False)
+
+    @staticmethod
+    def _server_message(error: ServerError) -> str:
+        if error.code == "already_answered":
+            return "Another client already answered this notification."
+        if error.status in {401, 403}:
+            return "The client is not authorized to perform this action."
+        if error.retryable:
+            return "The server is temporarily unavailable. Try again later."
+        return "The server rejected this action."
+
+    @staticmethod
+    def _failure(code: str, message: str, retryable: bool, **extra: Any) -> dict[str, Any]:
+        return {
+            "ok": False,
+            "error": {"code": code, "message": message, "retryable": retryable, **extra},
+        }

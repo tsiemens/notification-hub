@@ -13,6 +13,12 @@ dependencies = [
 nh-server = "notification_hub.server.runner:main"
 nh-notifier = "notification_hub.notifier.cli:main"
 nh-client-cli = "notification_hub.debug_cli.cli:main"
+nh-client = "notification_hub.gui.launcher:main"
+
+[project.optional-dependencies]
+gui = [
+    "pywebview[gtk]>=5,<7",
+]
 
 [build-system]
 requires = ["hatchling"]
