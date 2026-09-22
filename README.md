@@ -114,6 +114,18 @@ The Linux runtime requires GTK and WebKitGTK libraries supplied by the host
 distribution. The launcher explicitly uses pywebview's GTK backend and does not
 fall back to a general-purpose browser.
 
+For a guided visual demo, run:
+
+```sh
+./examples/demo.sh
+```
+
+The script starts an isolated server and desktop client, creates a fresh
+temporary database and signing keypair, and sends several UI-focused scenarios.
+It also pauses for signed responses in the UI to verify the approval wrapper and
+response-message controls. Closing the window removes all temporary state; set
+`NH_DEMO_KEEP_STATE=1` to retain it for debugging.
+
 For frontend development, use Node.js 22 or newer:
 
 ```sh
