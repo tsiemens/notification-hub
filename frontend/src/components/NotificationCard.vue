@@ -4,6 +4,7 @@ import { computed, nextTick, ref, watch } from "vue";
 import type { DesktopBridge } from "@/api/bridge";
 import type { Notification, ResponseOption } from "@/model/protocol";
 import MarkdownContent from "@/components/MarkdownContent.vue";
+import { identityAccentIndex } from "@/presentation/identity";
 
 const props = defineProps<{
   notification: Notification;
@@ -12,6 +13,7 @@ const props = defineProps<{
   error?: { message: string; retryable: boolean };
   connected: boolean;
   now: number;
+  rawMarkdown?: boolean;
 }>();
 const emit = defineEmits<{
   read: [notification: Notification, read: boolean];
@@ -23,6 +25,8 @@ const editing = ref<ResponseOption | null>(null);
 const responseMessage = ref("");
 const editor = ref<HTMLTextAreaElement | null>(null);
 const validationError = ref<string | null>(null);
+const domainAccent = computed(() => identityAccentIndex(props.notification.domain));
+const senderAccent = computed(() => identityAccentIndex(props.notification.sender));
 const age = computed(() => {
   const seconds = Math.max(0, Math.floor((props.now - Date.parse(props.notification.created_at)) / 1000));
   if (seconds < 60) return "just now";
@@ -78,7 +82,8 @@ function submit(): void {
     <div class="card-heading">
       <div class="metadata">
         <span class="priority" :data-priority="notification.priority">{{ notification.priority }}</span>
-        {{ notification.domain }} · {{ notification.sender }} ·
+        <span class="identity-label domain-label" :data-identity-accent="domainAccent">{{ notification.domain }}</span> ·
+        <span class="identity-label sender-label" :data-identity-accent="senderAccent">{{ notification.sender }}</span> ·
         <time :datetime="notification.created_at">{{ age }}</time>
         <span v-if="notification.read_at === null" class="unread-label">Unread</span>
       </div>
@@ -92,7 +97,7 @@ function submit(): void {
       </button>
     </div>
     <h2 :id="`summary-${notification.id}`">{{ notification.summary }}</h2>
-    <MarkdownContent v-if="notification.message" :source="notification.message" :bridge="bridge" label="message" />
+    <MarkdownContent v-if="notification.message" :source="notification.message" :bridge="bridge" label="message" :initial-raw="rawMarkdown" />
     <button
       v-if="notification.details !== null"
       type="button"
@@ -107,6 +112,7 @@ function submit(): void {
       :source="notification.details"
       :bridge="bridge"
       label="details"
+      :initial-raw="rawMarkdown"
     />
     <div v-if="notification.tags.length" class="tags" aria-label="Tags">
       <span v-for="tag in notification.tags" :key="tag">{{ tag }}</span>

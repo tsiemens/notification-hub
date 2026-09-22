@@ -1,13 +1,20 @@
 <script setup lang="ts">
 import DOMPurify from "dompurify";
 import { marked } from "marked";
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 
 import type { DesktopBridge } from "@/api/bridge";
 
-const props = defineProps<{ source: string; bridge: DesktopBridge; label: string }>();
-const raw = ref(false);
+const props = withDefaults(defineProps<{ source: string; bridge: DesktopBridge; label: string; initialRaw?: boolean }>(), {
+  initialRaw: false,
+});
+const raw = ref(props.initialRaw);
+const locallyToggled = ref(false);
 const linkError = ref<string | null>(null);
+
+watch(() => props.initialRaw, (value) => {
+  if (!locallyToggled.value) raw.value = value;
+});
 
 function allowedUrl(value: string): boolean {
   try {
@@ -65,7 +72,7 @@ function activateLinkFromKeyboard(event: KeyboardEvent): void {
 
 <template>
   <div class="markdown-block">
-    <button class="text-button raw-toggle" type="button" :aria-pressed="raw" @click="raw = !raw">
+    <button class="text-button raw-toggle" type="button" :aria-pressed="raw" @click="locallyToggled = true; raw = !raw">
       {{ raw ? "Show rendered" : "Show source" }} for {{ label }}
     </button>
     <pre v-if="raw" class="raw-source">{{ source }}</pre>

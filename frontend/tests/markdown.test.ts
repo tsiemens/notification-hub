@@ -57,4 +57,16 @@ describe("hardened Markdown", () => {
     expect(wrapper.get("pre").text()).toBe("<svg onload=alert(1)>");
     expect(wrapper.find("svg").exists()).toBe(false);
   });
+
+  it("uses the settings default until the user overrides the block for the session", async () => {
+    const wrapper = mount(MarkdownContent, {
+      props: { bridge: bridge(), label: "message", source: "**source**", initialRaw: true },
+    });
+    expect(wrapper.get("pre").text()).toBe("**source**");
+
+    await wrapper.get("button").trigger("click");
+    expect(wrapper.find("pre").exists()).toBe(false);
+    await wrapper.setProps({ initialRaw: false });
+    expect(wrapper.find("pre").exists()).toBe(false);
+  });
 });

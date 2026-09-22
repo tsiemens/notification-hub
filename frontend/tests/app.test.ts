@@ -76,6 +76,9 @@ describe("large feed", () => {
 
     expect(wrapper.get(".connection").text()).toBe("Network unavailable");
     expect(wrapper.get(".connection").attributes("data-state")).toBe("offline");
+    expect(wrapper.get(".connection").attributes("aria-label")).toBe("Network unavailable");
+    expect(wrapper.get(".connection-icon").attributes("aria-hidden")).toBe("true");
+    expect(wrapper.get(".connection-popover").attributes("role")).toBe("tooltip");
     expect(wrapper.findAll(".feed-toolbar button").every((button) => button.attributes("disabled") !== undefined)).toBe(true);
     wrapper.unmount();
   });

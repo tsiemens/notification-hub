@@ -53,4 +53,21 @@ describe("notification card", () => {
     expect(wrapper.findAll("button").filter((button) => button.text().includes("Mark") || button.text() === "Skip").every((button) => button.attributes("disabled") !== undefined)).toBe(true);
     expect(wrapper.text()).toContain("Submitting");
   });
+
+  it("exposes structural read state, identity accent, and the raw Markdown default", () => {
+    const unread = mount(NotificationCard, { props: { notification: item(), bridge: api, pending: false, connected: true, now: Date.now(), rawMarkdown: true } });
+    expect(unread.classes()).toContain("unread");
+    expect(unread.get(".domain-label").text()).toBe("ops");
+    expect(unread.get(".domain-label").attributes("data-identity-accent")).toMatch(/^(?:[0-9]|1[01])$/);
+    expect(unread.get(".sender-label").text()).toBe("tests");
+    expect(unread.get(".sender-label").attributes("data-identity-accent")).toMatch(/^(?:[0-9]|1[01])$/);
+    expect(unread.findAll("pre.raw-source")).toHaveLength(1);
+
+    const otherDomain = mount(NotificationCard, { props: { notification: { ...item(), domain: "security" }, bridge: api, pending: false, connected: true, now: Date.now() } });
+    expect(otherDomain.get(".sender-label").attributes("data-identity-accent"))
+      .toBe(unread.get(".sender-label").attributes("data-identity-accent"));
+
+    const read = mount(NotificationCard, { props: { notification: { ...item(), read_at: "2026-01-02T00:00:00Z" }, bridge: api, pending: false, connected: true, now: Date.now() } });
+    expect(read.classes()).not.toContain("unread");
+  });
 });

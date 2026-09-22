@@ -6,6 +6,7 @@ import NotificationCard from "@/components/NotificationCard.vue";
 import SettingsDialog from "@/components/SettingsDialog.vue";
 import type { Notification, ResponseOption } from "@/model/protocol";
 import type { ClientSettings } from "@/model/settings";
+import { installTheme } from "@/presentation/theme";
 import { createHubStore, type FeedSelection } from "@/stores/hub";
 
 const store = createHubStore();
@@ -36,6 +37,7 @@ const connectionMessage = computed(() => {
 });
 let stopped = false;
 let clock = 0;
+let removeThemeListener = (): void => undefined;
 
 async function loadSettings(): Promise<void> {
   try {
@@ -144,6 +146,11 @@ watch(() => notifications.value[0]?.id, (head, oldHead) => {
 });
 
 watch([() => store.state.selection, () => store.state.hideRead], resetFeedPosition);
+watch(() => settings.value?.theme, (theme) => {
+  if (!theme) return;
+  removeThemeListener();
+  removeThemeListener = installTheme(theme);
+});
 
 onMounted(() => {
   void loadSettings();
@@ -153,6 +160,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   stopped = true;
   window.clearInterval(clock);
+  removeThemeListener();
 });
 </script>
 
@@ -161,7 +169,23 @@ onBeforeUnmount(() => {
     <header>
       <h1>Notification Hub</h1>
       <div class="header-actions">
-        <p class="connection" role="status" :data-state="store.state.connection.state">{{ connectionMessage }}</p>
+        <div
+          class="connection"
+          role="status"
+          tabindex="0"
+          :aria-label="connectionMessage"
+          :data-state="store.state.connection.state"
+        >
+          <svg class="connection-icon" viewBox="0 0 20 20" aria-hidden="true">
+            <circle cx="10" cy="10" r="7" />
+            <path v-if="store.state.connection.state === 'connected'" d="m6.5 10 2.2 2.2 4.8-5" />
+            <path v-else-if="store.state.connection.state === 'starting'" d="M10 5v5l3 2" />
+            <path v-else-if="store.state.connection.state === 'reconnecting'" d="M6 9a4 4 0 0 1 6.7-2.9L14 7.5M14 11a4 4 0 0 1-6.7 2.9L6 12.5" />
+            <path v-else-if="store.state.connection.state === 'offline'" d="M7 7l6 6m0-6-6 6" />
+            <path v-else d="M10 6.5v4.5m0 2.5v.1" />
+          </svg>
+          <span class="connection-popover" role="tooltip">{{ connectionMessage }}</span>
+        </div>
         <button type="button" :disabled="!settings" @click="settingsOpen = true">Settings</button>
       </div>
     </header>
@@ -214,6 +238,7 @@ onBeforeUnmount(() => {
           :error="store.state.errors.get(notification.id)"
           :connected="connected"
           :now="now"
+          :raw-markdown="settings?.raw_markdown ?? false"
           @read="setRead"
           @respond="respond"
         />
