@@ -25,9 +25,15 @@ export interface Notification {
   created_at: string;
   updated_at: string;
   read_at: string | null;
-  response_state: "not_requested" | "pending" | "answered" | "cancelled";
+  response_state: "not_requested" | "pending" | "answered" | "cancelled" | "expired";
   response_options: ResponseOption[];
-  response: Record<string, unknown> | null;
+  response: {
+    request_id: string;
+    option_id: string;
+    message: string | null;
+    responded_at: string;
+    responded_by: string;
+  } | null;
   version: number;
 }
 

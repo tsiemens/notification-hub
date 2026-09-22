@@ -33,10 +33,10 @@ digests, scope enforcement, transactional single-use mutation nonces, and the
 producer-side `nh-notifier` CLI. Phase 4 adds the reusable signed Python client,
 paginated snapshot and durable event synchronization, and the headless
 `nh-client-cli` inspection and mutation tool.
-Phase 5 desktop-client work is underway. The GTK launcher, revisioned Python
-bridge/controller, Vue synchronization shell, and production asset build are
-available; the complete notification controls and hardened Markdown renderer
-are still in progress.
+Phase 5 is complete. The GTK launcher, revisioned Python bridge/controller,
+windowed Vue feed, notification and mutation controls, hardened Markdown
+renderer, reconnect/reset handling, and native-window-independent real-server
+integration coverage are available.
 Producer create, outcome, and cancellation routes remain intentionally
 unauthenticated as specified in the design.
 
