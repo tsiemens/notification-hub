@@ -67,6 +67,15 @@ function regexError(rule: ViewRule, key: keyof ViewRule): string | null {
   }
 }
 
+function ruleIsValid(rule: ViewRule): boolean {
+  const keys = ["domain_regex", "sender_regex", "tag_regex"] as (keyof ViewRule)[];
+  return keys.some((key) => Boolean(rule[key])) && keys.every((key) => regexError(rule, key) === null);
+}
+
+function validRuleCount(rules: ViewRule[]): number {
+  return rules.filter(ruleIsValid).length;
+}
+
 function cleanDraft(): ClientSettings {
   const result = cloneSettings(draft.value);
   for (const view of result.views) {
@@ -138,6 +147,8 @@ async function save(): Promise<void> {
                 <button type="button" :aria-label="`Remove ${view.name}`" @click="draft.views.splice(viewIndex, 1)">Remove</button>
               </div>
             </div>
+            <p v-if="validRuleCount(view.rules) === 0" class="inline-error" role="status">This view has no valid rules and will not be available for filtering.</p>
+            <p v-else-if="validRuleCount(view.rules) < view.rules.length" class="inline-error" role="status">{{ view.rules.length - validRuleCount(view.rules) }} invalid rule(s) will be omitted from filtering.</p>
             <fieldset v-for="(rule, ruleIndex) in view.rules" :key="ruleIndex" class="rule-editor">
               <legend>Rule {{ ruleIndex + 1 }}</legend>
               <label>Domain expression <input v-model="rule.domain_regex" :maxlength="MAX_VIEW_REGEX_LENGTH + 1"></label>

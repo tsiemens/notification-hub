@@ -11,6 +11,64 @@ import type {
   UpdateBatch,
   MutationResult,
 } from "@/model/protocol";
+import type { ClientSettings, CustomView, ViewRule } from "@/model/settings";
+
+export type FeedSelection = "all" | `domain:${string}` | `view:${string}`;
+
+interface CompiledRule {
+  domain?: RegExp;
+  sender?: RegExp;
+  tag?: RegExp;
+}
+
+interface CompiledView {
+  id: string;
+  name: string;
+  rules: CompiledRule[];
+}
+
+export interface CustomViewSummary {
+  id: string;
+  name: string;
+  notification_count: number;
+  unread_count: number;
+  pending_response_count: number;
+  has_valid_rules: boolean;
+}
+
+function compileExpression(expression: string | undefined): RegExp | undefined {
+  return expression === undefined ? undefined : new RegExp(expression, "i");
+}
+
+function compileRule(rule: ViewRule): CompiledRule | null {
+  try {
+    return {
+      domain: compileExpression(rule.domain_regex),
+      sender: compileExpression(rule.sender_regex),
+      tag: compileExpression(rule.tag_regex),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function compileView(view: CustomView): CompiledView {
+  return {
+    id: view.id,
+    name: view.name,
+    rules: view.rules.map(compileRule).filter((rule): rule is CompiledRule => rule !== null),
+  };
+}
+
+function matchesRule(notification: Notification, rule: CompiledRule): boolean {
+  return (!rule.domain || rule.domain.test(notification.domain))
+    && (!rule.sender || rule.sender.test(notification.sender))
+    && (!rule.tag || notification.tags.some((tag) => rule.tag!.test(tag)));
+}
+
+function matchesView(notification: Notification, view: CompiledView): boolean {
+  return view.rules.some((rule) => matchesRule(notification, rule));
+}
 
 function notificationOrder(left: Notification, right: Notification): number {
   return right.created_at.localeCompare(left.created_at) || right.id.localeCompare(left.id);
@@ -22,7 +80,9 @@ export function createHubStore() {
     connection: { state: "starting", message: null } as ConnectionStatus,
     notifications: new Map<string, Notification>(),
     domains: new Map<string, DomainSummary>(),
-    selectedDomain: null as string | null,
+    selection: "all" as FeedSelection,
+    hideRead: false,
+    compiledViews: [] as CompiledView[],
     pending: new Set<string>(),
     errors: new Map<string, { message: string; retryable: boolean }>(),
   });
@@ -30,7 +90,7 @@ export function createHubStore() {
   function replace(snapshot: Snapshot): void {
     state.notifications = new Map(snapshot.notifications.map((item) => [item.id, item]));
     state.domains = new Map(snapshot.domains.map((item) => [item.name, item]));
-    if (state.selectedDomain && !state.domains.has(state.selectedDomain)) state.selectedDomain = null;
+    validateSelection();
   }
 
   function upsert(notification: Notification): void {
@@ -65,7 +125,7 @@ export function createHubStore() {
       state.notifications.delete(event.id);
     } else if (event.type === "domain.deleted") {
       state.domains.delete(event.name);
-      if (state.selectedDomain === event.name) state.selectedDomain = null;
+      if (state.selection === `domain:${event.name}`) state.selection = "all";
     }
   }
 
@@ -82,6 +142,28 @@ export function createHubStore() {
     state.revision = initial.revision;
     state.connection = initial.connection;
     if (initial.snapshot) replace(initial.snapshot);
+  }
+
+  function validateSelection(): void {
+    if (state.selection.startsWith("domain:")) {
+      if (!state.domains.has(state.selection.slice(7))) state.selection = "all";
+      return;
+    }
+    if (state.selection.startsWith("view:")) {
+      const selected = state.compiledViews.find((view) => view.id === state.selection.slice(5));
+      if (!selected?.rules.length) state.selection = "all";
+    }
+  }
+
+  function setSettings(settings: ClientSettings): void {
+    state.hideRead = settings.hide_read;
+    state.compiledViews = settings.views.map(compileView);
+    validateSelection();
+  }
+
+  function select(selection: FeedSelection): void {
+    state.selection = selection;
+    validateSelection();
   }
 
   function applyBatch(batch: UpdateBatch): void {
@@ -129,13 +211,50 @@ export function createHubStore() {
       (left, right) => right.last_activity_at.localeCompare(left.last_activity_at) || left.name.localeCompare(right.name),
     ),
   );
+  const allNotifications = computed(() => [...state.notifications.values()]);
+  const allSummary = computed(() => ({
+    notification_count: allNotifications.value.length,
+    unread_count: allNotifications.value.filter((item) => item.read_at === null).length,
+    pending_response_count: allNotifications.value.filter((item) => item.response_state === "pending").length,
+  }));
+  const customViews = computed<CustomViewSummary[]>(() => state.compiledViews.map((view) => {
+    const matching = allNotifications.value.filter((item) => matchesView(item, view));
+    return {
+      id: view.id,
+      name: view.name,
+      notification_count: matching.length,
+      unread_count: matching.filter((item) => item.read_at === null).length,
+      pending_response_count: matching.filter((item) => item.response_state === "pending").length,
+      has_valid_rules: view.rules.length > 0,
+    };
+  }));
   const notifications = computed(() =>
-    [...state.notifications.values()]
-      .filter((item) => state.selectedDomain === null || item.domain === state.selectedDomain)
+    allNotifications.value
+      .filter((item) => {
+        if (state.selection === "all") return true;
+        if (state.selection.startsWith("domain:")) return item.domain === state.selection.slice(7);
+        const view = state.compiledViews.find((candidate) => candidate.id === state.selection.slice(5));
+        return view ? matchesView(item, view) : false;
+      })
+      .filter((item) => !state.hideRead || item.read_at === null)
       .sort(notificationOrder),
   );
 
-  return { state, domains, notifications, hydrate, applyBatch, upsert, beginMutation, finishMutation, failMutation };
+  return {
+    state,
+    domains,
+    customViews,
+    allSummary,
+    notifications,
+    hydrate,
+    applyBatch,
+    upsert,
+    setSettings,
+    select,
+    beginMutation,
+    finishMutation,
+    failMutation,
+  };
 }
 
 export type HubStore = ReturnType<typeof createHubStore>;

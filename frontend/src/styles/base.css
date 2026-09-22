@@ -16,6 +16,10 @@ nav { overflow-y: auto; padding: 0.75rem; background: #e7ebef; border-right: 1px
 nav button { display: grid; width: 100%; gap: 0.15rem; padding: 0.75rem; border: 0; border-radius: 0.4rem; background: transparent; text-align: left; }
 nav button[aria-current="true"] { background: white; box-shadow: 0 1px 3px #0002; }
 nav span, nav small, .metadata { overflow: hidden; color: #596775; font-size: 0.8rem; text-overflow: ellipsis; white-space: nowrap; }
+.nav-title { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; color: inherit; font-size: inherit; }
+.nav-label { display: flex; min-width: 0; align-items: center; gap: 0.35rem; color: inherit; font-size: inherit; }
+.view-icon { width: 0.85rem; height: 0.85rem; flex: none; fill: none; stroke: #6d7883; stroke-linejoin: round; stroke-width: 1.25; }
+.unread-marker { flex: none; padding: 0.08rem 0.35rem; border: 1px solid currentColor; border-radius: 1rem; color: #1769aa; font-size: 0.68rem; font-weight: 700; }
 main { overflow-y: auto; width: min(58rem, 100%); padding: 1rem 1.5rem 3rem; scroll-behavior: auto; }
 .feed-toolbar { position: sticky; z-index: 3; top: -1rem; display: flex; align-items: center; justify-content: space-between; margin: -1rem 0 0.9rem; padding: 0.8rem 0; background: #f4f6f8ee; backdrop-filter: blur(3px); }
 .feed-toolbar div, .response-buttons, .editor-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { InitialState, Notification } from "@/model/protocol";
 import { createHubStore } from "@/stores/hub";
 
-function notification(id: string, created_at: string, version = 1): Notification {
+function notification(id: string, created_at: string, version = 1, overrides: Partial<Notification> = {}): Notification {
   return {
     id,
     domain: "tests",
@@ -21,6 +21,7 @@ function notification(id: string, created_at: string, version = 1): Notification
     response_options: [],
     response: null,
     version,
+    ...overrides,
   };
 }
 
@@ -76,7 +77,7 @@ describe("hub store", () => {
         }],
       },
     });
-    store.state.selectedDomain = "tests";
+    store.select("domain:tests");
     store.applyBatch({
       revision: 2,
       updates: [{ kind: "events", domains: [], events: [
@@ -86,7 +87,111 @@ describe("hub store", () => {
     });
 
     expect(store.notifications.value).toEqual([]);
-    expect(store.state.selectedDomain).toBeNull();
+    expect(store.state.selection).toBe("all");
+  });
+
+  it("uses OR between rules, AND within rules, and any-tag matching", () => {
+    const store = createHubStore();
+    store.hydrate(initial([
+      notification("and", "2026-01-04T00:00:00.000Z", 1, { domain: "Ops", sender: "Deploy Bot", tags: ["release", "blue"] }),
+      notification("wrong-sender", "2026-01-03T00:00:00.000Z", 1, { domain: "ops", sender: "human", tags: ["release"] }),
+      notification("tag-rule", "2026-01-02T00:00:00.000Z", 1, { domain: "other", sender: "human", tags: ["routine", "URGENT-fix"] }),
+      notification("no-match", "2026-01-01T00:00:00.000Z", 1, { domain: "other", sender: "human", tags: ["routine"] }),
+    ]));
+    store.setSettings({
+      theme: "system", sound: "never", hide_read: false, raw_markdown: false,
+      views: [{ id: "ops", name: "Ops", rules: [
+        { domain_regex: "^ops$", sender_regex: "deploy" },
+        { tag_regex: "urgent" },
+      ] }],
+    });
+    store.select("view:ops");
+
+    expect(store.notifications.value.map((item) => item.id)).toEqual(["and", "tag-rule"]);
+  });
+
+  it("omits only invalid regex rules and rejects a view with no valid rules", () => {
+    const store = createHubStore();
+    store.hydrate(initial([notification("match", "2026-01-01T00:00:00.000Z", 1, { sender: "robot" })]));
+    store.setSettings({
+      theme: "system", sound: "never", hide_read: false, raw_markdown: false,
+      views: [
+        { id: "mixed", name: "Mixed", rules: [{ domain_regex: "[" }, { sender_regex: "ROBOT" }] },
+        { id: "broken", name: "Broken", rules: [{ tag_regex: "(" }] },
+      ],
+    });
+    store.select("view:mixed");
+    expect(store.notifications.value.map((item) => item.id)).toEqual(["match"]);
+    expect(store.customViews.value.map((view) => view.has_valid_rules)).toEqual([true, false]);
+
+    store.select("view:broken");
+    expect(store.state.selection).toBe("all");
+  });
+
+  it("keeps domain and view selections distinct when their names collide", () => {
+    const store = createHubStore();
+    const domainItem = notification("domain", "2026-01-02T00:00:00.000Z", 1, { domain: "shared", sender: "human" });
+    const viewItem = notification("view", "2026-01-01T00:00:00.000Z", 1, { domain: "elsewhere", sender: "robot" });
+    store.hydrate({ ...initial([domainItem, viewItem]), snapshot: { sequence: 1, notifications: [domainItem, viewItem], domains: [{
+      name: "shared", last_activity_at: domainItem.created_at, notification_count: 1, unread_count: 1,
+      pending_response_count: 0, latest_summary: domainItem.summary,
+    }] } });
+    store.setSettings({
+      theme: "system", sound: "never", hide_read: false, raw_markdown: false,
+      views: [{ id: "shared", name: "shared", rules: [{ sender_regex: "robot" }] }],
+    });
+
+    store.select("domain:shared");
+    expect(store.notifications.value.map((item) => item.id)).toEqual(["domain"]);
+    store.select("view:shared");
+    expect(store.notifications.value.map((item) => item.id)).toEqual(["view"]);
+  });
+
+  it("updates live view membership and derives counts from the complete local store", () => {
+    const store = createHubStore();
+    const item = notification("a", "2026-01-01T00:00:00.000Z", 1, { domain: "ops", sender: "human" });
+    store.hydrate(initial([item]));
+    store.setSettings({
+      theme: "system", sound: "never", hide_read: false, raw_markdown: false,
+      views: [{ id: "bots", name: "Bots", rules: [{ sender_regex: "bot" }] }],
+    });
+    store.select("view:bots");
+    expect(store.notifications.value).toEqual([]);
+
+    store.applyBatch({ revision: 2, updates: [{ kind: "events", domains: [], events: [{
+      seq: 2, type: "notification.updated", notification: { ...item, sender: "Bot", response_state: "pending", version: 2 },
+    }] }] });
+    expect(store.notifications.value.map((entry) => entry.id)).toEqual(["a"]);
+    expect(store.customViews.value[0]).toMatchObject({ notification_count: 1, unread_count: 1, pending_response_count: 1 });
+  });
+
+  it("applies hide-read last and restores locally retained read items", () => {
+    const store = createHubStore();
+    const unread = notification("unread", "2026-01-02T00:00:00.000Z", 1, { domain: "ops" });
+    const read = notification("read", "2026-01-01T00:00:00.000Z", 1, { domain: "ops", read_at: "2026-01-03T00:00:00.000Z" });
+    store.hydrate(initial([unread, read]));
+    const settings = {
+      theme: "system" as const, sound: "never" as const, raw_markdown: false,
+      views: [{ id: "ops", name: "Ops", rules: [{ domain_regex: "ops" }] }],
+    };
+    store.setSettings({ ...settings, hide_read: true });
+    store.select("view:ops");
+    expect(store.notifications.value.map((item) => item.id)).toEqual(["unread"]);
+    expect(store.state.notifications.has("read")).toBe(true);
+
+    store.setSettings({ ...settings, hide_read: false });
+    expect(store.notifications.value.map((item) => item.id)).toEqual(["unread", "read"]);
+  });
+
+  it("returns to all when the active view is removed", () => {
+    const store = createHubStore();
+    store.setSettings({
+      theme: "system", sound: "never", hide_read: false, raw_markdown: false,
+      views: [{ id: "temporary", name: "Temporary", rules: [{ domain_regex: "." }] }],
+    });
+    store.select("view:temporary");
+    store.setSettings({ theme: "system", sound: "never", hide_read: false, raw_markdown: false, views: [] });
+    expect(store.state.selection).toBe("all");
   });
 
   it("keeps the newer event when a mutation result loses a race", () => {

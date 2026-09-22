@@ -83,4 +83,18 @@ describe("settings contract", () => {
     await wrapper.get('button[aria-label="Remove Operations"]').trigger("click");
     expect(wrapper.findAll(".view-editor")).toHaveLength(1);
   });
+
+  it("reports invalid rules and when a view has no valid rules", async () => {
+    const invalid = {
+      ...original,
+      views: [{ id: "broken", name: "Broken", rules: [{ domain_regex: "[" }, { sender_regex: "agent" }] }],
+    };
+    const wrapper = mount(SettingsDialog, { props: { settings: invalid, bridge: bridge() } });
+    expect(wrapper.text()).toContain("Invalid regular expression");
+    expect(wrapper.text()).toContain("1 invalid rule(s) will be omitted");
+
+    const sender = wrapper.findAll('.rule-editor input')[4];
+    await sender.setValue("(");
+    expect(wrapper.text()).toContain("This view has no valid rules");
+  });
 });
