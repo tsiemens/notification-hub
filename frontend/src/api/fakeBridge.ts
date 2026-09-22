@@ -1,5 +1,14 @@
 import type { PywebviewApi } from "@/api/bridge";
 import type { InitialState, MutationResult } from "@/model/protocol";
+import type { ClientSettings } from "@/model/settings";
+
+let settings: ClientSettings = {
+  theme: "system",
+  sound: "response_required",
+  hide_read: false,
+  raw_markdown: false,
+  views: [{ id: "development", name: "Development", rules: [{ tag_regex: "^development$" }] }],
+};
 
 const initial: InitialState = {
   revision: 1,
@@ -64,5 +73,12 @@ export const fakePywebviewApi: PywebviewApi = {
   },
   async open_external() {
     return { ok: true };
+  },
+  async get_settings() {
+    return { ok: true, settings: structuredClone(settings) };
+  },
+  async update_settings(updated) {
+    settings = structuredClone(updated);
+    return { ok: true, settings: structuredClone(settings) };
   },
 };

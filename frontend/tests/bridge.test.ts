@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { PywebviewApi } from "@/api/bridge";
-import { waitForPywebviewApi } from "@/api/bridge";
+import { desktopBridge, waitForPywebviewApi } from "@/api/bridge";
+import { fakePywebviewApi } from "@/api/fakeBridge";
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
   delete window.pywebview;
 });
 
@@ -22,6 +24,8 @@ describe("desktop bridge readiness", () => {
       set_read_state: vi.fn(),
       respond: vi.fn(),
       open_external: vi.fn(),
+      get_settings: vi.fn(),
+      update_settings: vi.fn(),
     });
     await vi.advanceTimersByTimeAsync(25);
 
@@ -37,5 +41,14 @@ describe("desktop bridge readiness", () => {
     await vi.advanceTimersByTimeAsync(100);
 
     await rejection;
+  });
+
+  it("rejects malformed settings responses at the bridge boundary", async () => {
+    vi.spyOn(fakePywebviewApi, "get_settings").mockResolvedValue({
+      ok: true,
+      settings: { theme: "purple" },
+    });
+
+    await expect(desktopBridge.getSettings()).rejects.toThrow("invalid settings data");
   });
 });

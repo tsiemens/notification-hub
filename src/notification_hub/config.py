@@ -12,6 +12,9 @@ from notification_hub.domain import Priority
 
 VALID_SCOPES = frozenset({"read", "respond", "read_state"})
 _LOCAL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+MAX_CUSTOM_VIEWS = 64
+MAX_VIEW_RULES = 32
+MAX_VIEW_REGEX_LENGTH = 1024
 
 
 class ConfigurationError(ValueError):
@@ -180,6 +183,52 @@ class ClientConfig:
     raw_markdown: bool = False
     views: tuple[CustomView, ...] = ()
 
+    @property
+    def settings(self) -> ClientSettings:
+        return ClientSettings(
+            self.theme,
+            self.sound,
+            self.hide_read,
+            self.raw_markdown,
+            self.views,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ClientSettings:
+    theme: str = "system"
+    sound: str = "response_required"
+    hide_read: bool = False
+    raw_markdown: bool = False
+    views: tuple[CustomView, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "theme": self.theme,
+            "sound": self.sound,
+            "hide_read": self.hide_read,
+            "raw_markdown": self.raw_markdown,
+            "views": [
+                {
+                    "id": view.id,
+                    "name": view.name,
+                    "rules": [
+                        {
+                            key: value
+                            for key, value in (
+                                ("domain_regex", rule.domain_regex),
+                                ("sender_regex", rule.sender_regex),
+                                ("tag_regex", rule.tag_regex),
+                            )
+                            if value is not None
+                        }
+                        for rule in view.rules
+                    ],
+                }
+                for view in self.views
+            ],
+        }
+
 
 def load_server_config(path: Path | None = None) -> ServerConfig:
     path = (path or default_server_config_path()).expanduser()
@@ -328,13 +377,8 @@ def load_notifier_config(path: Path | None = None) -> NotifierConfig:
     )
 
 
-def load_client_config(path: Path | None = None) -> ClientConfig:
-    path = (path or default_client_config_path()).expanduser()
-    data = _load_toml(path)
-    _only(data, {"server", "auth", "ui", "views"}, "top-level")
-    auth = _table(data, "auth")
+def _client_settings(data: dict[str, Any]) -> ClientSettings:
     ui = _table(data, "ui")
-    _only(auth, {"key_id", "private_key_file"}, "auth")
     _only(ui, {"theme", "sound", "hide_read", "raw_markdown"}, "ui")
     theme = ui.get("theme", "system")
     sound = ui.get("sound", "response_required")
@@ -348,6 +392,8 @@ def load_client_config(path: Path | None = None) -> ClientConfig:
     view_values = data.get("views", [])
     if not isinstance(view_values, list):
         raise ConfigurationError("views must be an array of tables")
+    if len(view_values) > MAX_CUSTOM_VIEWS:
+        raise ConfigurationError(f"views must contain at most {MAX_CUSTOM_VIEWS} entries")
     for entry in view_values:
         if not isinstance(entry, dict):
             raise ConfigurationError("views entries must be tables")
@@ -359,8 +405,10 @@ def load_client_config(path: Path | None = None) -> ClientConfig:
         if not isinstance(name, str) or not 1 <= len(name) <= 80:
             raise ConfigurationError("view.name must contain 1..80 characters")
         rule_values = entry.get("rules", [])
-        if not isinstance(rule_values, list):
-            raise ConfigurationError("view.rules must be an array of tables")
+        if not isinstance(rule_values, list) or not rule_values:
+            raise ConfigurationError("view.rules must be a non-empty array of tables")
+        if len(rule_values) > MAX_VIEW_RULES:
+            raise ConfigurationError(f"view.rules must contain at most {MAX_VIEW_RULES} entries")
         rules = []
         for rule in rule_values:
             if not isinstance(rule, dict):
@@ -370,12 +418,50 @@ def load_client_config(path: Path | None = None) -> ClientConfig:
                 raise ConfigurationError("view rules must contain at least one expression")
             if any(not isinstance(value, str) for value in rule.values()):
                 raise ConfigurationError("view rule expressions must be strings")
+            if any(not value for value in rule.values()):
+                raise ConfigurationError("view rule expressions must not be empty")
+            if any(len(value) > MAX_VIEW_REGEX_LENGTH for value in rule.values()):
+                raise ConfigurationError(
+                    f"view rule expressions must be at most {MAX_VIEW_REGEX_LENGTH} characters"
+                )
             rules.append(
                 ViewRule(rule.get("domain_regex"), rule.get("sender_regex"), rule.get("tag_regex"))
             )
         views.append(CustomView(view_id, name, tuple(rules)))
     if len({view.id for view in views}) != len(views):
         raise ConfigurationError("view ids must be unique")
+    return ClientSettings(
+        theme,
+        sound,
+        _boolean(ui.get("hide_read", False), "ui.hide_read"),
+        _boolean(ui.get("raw_markdown", False), "ui.raw_markdown"),
+        tuple(views),
+    )
+
+
+def parse_client_settings(value: object) -> ClientSettings:
+    """Validate the bridge-visible presentation settings object."""
+    if not isinstance(value, dict):
+        raise ConfigurationError("settings must be an object")
+    _only(value, {"theme", "sound", "hide_read", "raw_markdown", "views"}, "settings")
+    missing = {"theme", "sound", "hide_read", "raw_markdown", "views"} - set(value)
+    if missing:
+        raise ConfigurationError(f"missing settings value(s): {', '.join(sorted(missing))}")
+    return _client_settings(
+        {
+            "ui": {key: value[key] for key in ("theme", "sound", "hide_read", "raw_markdown")},
+            "views": value["views"],
+        }
+    )
+
+
+def load_client_config(path: Path | None = None) -> ClientConfig:
+    path = (path or default_client_config_path()).expanduser()
+    data = _load_toml(path)
+    _only(data, {"server", "auth", "ui", "views"}, "top-level")
+    auth = _table(data, "auth")
+    _only(auth, {"key_id", "private_key_file"}, "auth")
+    settings = _client_settings(data)
     try:
         key_id, key_file = auth["key_id"], auth["private_key_file"]
     except KeyError as exc:
@@ -388,9 +474,9 @@ def load_client_config(path: Path | None = None) -> ClientConfig:
         _remote_server(_table(data, "server")),
         key_id,
         Path(key_file).expanduser(),
-        theme,
-        sound,
-        _boolean(ui.get("hide_read", False), "ui.hide_read"),
-        _boolean(ui.get("raw_markdown", False), "ui.raw_markdown"),
-        tuple(views),
+        settings.theme,
+        settings.sound,
+        settings.hide_read,
+        settings.raw_markdown,
+        settings.views,
     )

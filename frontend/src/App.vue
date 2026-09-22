@@ -3,7 +3,9 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 
 import { desktopBridge } from "@/api/bridge";
 import NotificationCard from "@/components/NotificationCard.vue";
+import SettingsDialog from "@/components/SettingsDialog.vue";
 import type { Notification, ResponseOption } from "@/model/protocol";
+import type { ClientSettings } from "@/model/settings";
 import { createHubStore } from "@/stores/hub";
 
 const store = createHubStore();
@@ -14,6 +16,9 @@ const main = ref<HTMLElement | null>(null);
 const windowSize = ref(50);
 const showNew = ref(false);
 const now = ref(Date.now());
+const settings = ref<ClientSettings | null>(null);
+const settingsOpen = ref(false);
+const settingsError = ref<string | null>(null);
 const renderedNotifications = computed(() => notifications.value.slice(0, windowSize.value));
 const connected = computed(() => store.state.connection.state === "connected");
 const connectionMessage = computed(() => {
@@ -28,6 +33,19 @@ const connectionMessage = computed(() => {
 });
 let stopped = false;
 let clock = 0;
+
+async function loadSettings(): Promise<void> {
+  try {
+    settings.value = await desktopBridge.getSettings();
+  } catch (error) {
+    settingsError.value = error instanceof Error ? error.message : "Settings could not be loaded.";
+  }
+}
+
+function settingsSaved(saved: ClientSettings): void {
+  settings.value = saved;
+  settingsOpen.value = false;
+}
 
 async function synchronize(): Promise<void> {
   try {
@@ -113,6 +131,7 @@ watch(() => notifications.value[0]?.id, (head, oldHead) => {
 });
 
 onMounted(() => {
+  void loadSettings();
   void synchronize();
   clock = window.setInterval(() => { now.value = Date.now(); }, 60_000);
 });
@@ -126,9 +145,13 @@ onBeforeUnmount(() => {
   <div class="app-shell">
     <header>
       <h1>Notification Hub</h1>
-      <p class="connection" role="status" :data-state="store.state.connection.state">{{ connectionMessage }}</p>
+      <div class="header-actions">
+        <p class="connection" role="status" :data-state="store.state.connection.state">{{ connectionMessage }}</p>
+        <button type="button" :disabled="!settings" @click="settingsOpen = true">Settings</button>
+      </div>
     </header>
     <p v-if="fatal" class="fatal" role="alert">{{ fatal }}</p>
+    <p v-if="settingsError" class="fatal" role="alert">{{ settingsError }}</p>
     <div class="workspace">
       <nav aria-label="Notification domains">
         <button :aria-current="store.state.selectedDomain === null" @click="selectDomain(null)">
@@ -168,5 +191,6 @@ onBeforeUnmount(() => {
         </button>
       </main>
     </div>
+    <SettingsDialog v-if="settingsOpen && settings" :settings="settings" :bridge="desktopBridge" @close="settingsOpen = false" @saved="settingsSaved" />
   </div>
 </template>

@@ -8,10 +8,15 @@ from importlib.resources import as_file, files
 from pathlib import Path
 
 from notification_hub.client import HubClient
-from notification_hub.config import ConfigurationError, load_client_config
+from notification_hub.config import (
+    ConfigurationError,
+    default_client_config_path,
+    load_client_config,
+)
 
 from .bridge import GuiBridge
 from .controller import GuiController
+from .settings import ClientSettingsStore
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -25,7 +30,8 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        config = load_client_config(args.config)
+        config_path = (args.config or default_client_config_path()).expanduser()
+        config = load_client_config(config_path)
         client = HubClient(config)
         import webview
     except (ConfigurationError, OSError, ValueError, ImportError) as exc:
@@ -33,7 +39,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
     controller = GuiController(client)
-    bridge = GuiBridge(controller)
+    bridge = GuiBridge(controller, settings_store=ClientSettingsStore(config_path, config.settings))
     resource = files("notification_hub.gui").joinpath("web")
     try:
         with ExitStack() as stack:

@@ -10,8 +10,9 @@ const mocks = vi.hoisted(() => {
     response_state: "not_requested" as const, response_options: [], response: null, version: 1,
   }));
   const setReadState = vi.fn(async (ids: string[]) => ({ ok: true as const, notifications: ids.map((id) => ({ ...items[Number(id)], read_at: "2026-01-02T00:00:00.000Z", version: 2 })) }));
+  const getSettings = vi.fn(async () => ({ theme: "system" as const, sound: "response_required" as const, hide_read: false, raw_markdown: false, views: [] }));
   const updateResolvers: Array<(value: unknown) => void> = [];
-  return { items, setReadState, updateResolvers };
+  return { items, setReadState, getSettings, updateResolvers };
 });
 
 vi.mock("@/api/bridge", () => ({
@@ -25,6 +26,8 @@ vi.mock("@/api/bridge", () => ({
     setReadState: mocks.setReadState,
     respond: vi.fn(),
     openExternal: vi.fn(async () => ({ ok: true })),
+    getSettings: mocks.getSettings,
+    updateSettings: vi.fn(),
   },
 }));
 
@@ -41,6 +44,8 @@ describe("large feed", () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     const wrapper = mount(App);
     await flushPromises();
+    expect(mocks.getSettings).toHaveBeenCalledOnce();
+    expect(wrapper.get(".header-actions button").attributes("disabled")).toBeUndefined();
     expect(wrapper.findAll("article")).toHaveLength(50);
     const feed = wrapper.get("main").element as HTMLElement;
     feed.scrollTop = 400;

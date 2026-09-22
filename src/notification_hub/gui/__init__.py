@@ -2,5 +2,6 @@
 
 from .bridge import GuiBridge
 from .controller import GuiController
+from .settings import ClientSettingsStore
 
-__all__ = ["GuiBridge", "GuiController"]
+__all__ = ["ClientSettingsStore", "GuiBridge", "GuiController"]

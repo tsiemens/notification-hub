@@ -11,6 +11,8 @@ function bridge(): DesktopBridge {
     setReadState: vi.fn(),
     respond: vi.fn(),
     openExternal: vi.fn(async () => ({ ok: true })),
+    getSettings: vi.fn(),
+    updateSettings: vi.fn(),
   };
 }
 

@@ -4,7 +4,15 @@ from pathlib import Path
 
 import pytest
 
-from notification_hub.config import ConfigurationError, load_notifier_config, load_server_config
+from notification_hub.config import (
+    MAX_CUSTOM_VIEWS,
+    MAX_VIEW_REGEX_LENGTH,
+    MAX_VIEW_RULES,
+    ConfigurationError,
+    load_client_config,
+    load_notifier_config,
+    load_server_config,
+)
 
 
 def write_config(root: Path, content: str, mode: int = 0o600) -> Path:
@@ -100,3 +108,53 @@ def test_rejects_invalid_notifier_url(tmp_path: Path, url: str) -> None:
     path.write_text(f'[server]\nurl = "{url}"\n', encoding="utf-8")
     with pytest.raises(ConfigurationError):
         load_notifier_config(path)
+
+
+def _client_config(settings: str = "") -> str:
+    return f"""[server]
+url = "https://hub.example"
+
+[auth]
+key_id = "desktop"
+private_key_file = "/secret/client.pem"
+
+{settings}
+"""
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        "\n".join(
+            f'[[views]]\nid = "v{index}"\nname = "View"\n[[views.rules]]\ndomain_regex = "."'
+            for index in range(MAX_CUSTOM_VIEWS + 1)
+        ),
+        '[[views]]\nid = "v"\nname = "View"\n'
+        + "\n".join('[[views.rules]]\ndomain_regex = "."' for _ in range(MAX_VIEW_RULES + 1)),
+        '[[views]]\nid = "v"\nname = "View"\n[[views.rules]]\ndomain_regex = "'
+        + ("x" * (MAX_VIEW_REGEX_LENGTH + 1))
+        + '"',
+    ],
+)
+def test_client_view_bounds_are_enforced(tmp_path: Path, settings: str) -> None:
+    path = tmp_path / "client.toml"
+    path.write_text(_client_config(settings), encoding="utf-8")
+    with pytest.raises(ConfigurationError):
+        load_client_config(path)
+
+
+def test_client_rejects_empty_rules_and_duplicate_view_ids(tmp_path: Path) -> None:
+    path = tmp_path / "client.toml"
+    path.write_text(
+        _client_config(
+            '[[views]]\nid = "same"\nname = "One"\n[[views.rules]]\ntag_regex = "x"\n'
+            '[[views]]\nid = "same"\nname = "Two"\n[[views.rules]]\ntag_regex = "y"'
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigurationError, match="unique"):
+        load_client_config(path)
+
+    path.write_text(_client_config('[[views]]\nid = "empty"\nname = "Empty"'), encoding="utf-8")
+    with pytest.raises(ConfigurationError, match="non-empty"):
+        load_client_config(path)

@@ -5,6 +5,7 @@ import uuid
 from notification_hub.client import NetworkError, ServerError
 from notification_hub.client.models import MutationResult, parse_notification
 from notification_hub.gui.bridge import GuiBridge
+from notification_hub.gui.settings import ClientSettingsStore, SettingsWriteError
 
 
 def _notification():
@@ -124,3 +125,35 @@ def test_external_urls_are_allowlisted_and_opened_outside_webview() -> None:
     assert bridge.open_external("javascript:alert(1)")["ok"] is False
     assert bridge.open_external("https://example.test/path")["ok"] is True
     assert opened == ["https://example.test/path"]
+
+
+def test_settings_bridge_returns_only_presentation_values_and_safe_errors(
+    tmp_path, monkeypatch
+) -> None:
+    path = tmp_path / "client.toml"
+    path.write_text(
+        """[server]
+url = "https://hub.example"
+[auth]
+key_id = "secret-key-id"
+private_key_file = "/secret/private.pem"
+""",
+        encoding="utf-8",
+    )
+    store = ClientSettingsStore(path)
+    bridge = GuiBridge(StubController(), settings_store=store)  # type: ignore[arg-type]
+
+    loaded = bridge.get_settings()
+    assert loaded["ok"] is True
+    assert "secret" not in str(loaded)
+    rejected = bridge.update_settings({"theme": "dark"})
+    assert rejected["error"]["code"] == "invalid_settings"
+    assert "secret" not in str(rejected)
+
+    def fail_update(_value):
+        raise SettingsWriteError("secret /private/path diagnostic")
+
+    monkeypatch.setattr(store, "update", fail_update)
+    write_error = bridge.update_settings(loaded["settings"])
+    assert write_error["error"]["code"] == "settings_write_failed"
+    assert "secret" not in str(write_error)

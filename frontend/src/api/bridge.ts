@@ -1,6 +1,8 @@
 import type { InitialState, MutationResult, UpdateBatch } from "@/model/protocol";
 import { assertInitialState, assertUpdateBatch } from "@/model/protocol";
 import { fakePywebviewApi } from "@/api/fakeBridge";
+import type { ClientSettings, SettingsResult } from "@/model/settings";
+import { readSettingsResult } from "@/model/settings";
 
 export interface PywebviewApi {
   get_initial_state(): Promise<unknown>;
@@ -8,6 +10,8 @@ export interface PywebviewApi {
   set_read_state(notificationIds: string[], read: boolean): Promise<MutationResult>;
   respond(notificationId: string, optionId: string, message: string | null): Promise<MutationResult>;
   open_external(url: string): Promise<{ ok: boolean }>;
+  get_settings(): Promise<unknown>;
+  update_settings(settings: ClientSettings): Promise<unknown>;
 }
 
 declare global {
@@ -22,6 +26,8 @@ export interface DesktopBridge {
   setReadState(notificationIds: string[], read: boolean): Promise<MutationResult>;
   respond(notificationId: string, optionId: string, message: string | null): Promise<MutationResult>;
   openExternal(url: string): Promise<{ ok: boolean }>;
+  getSettings(): Promise<ClientSettings>;
+  updateSettings(settings: ClientSettings): Promise<SettingsResult>;
 }
 
 async function pywebviewApi(): Promise<PywebviewApi> {
@@ -35,6 +41,8 @@ const API_METHODS: (keyof PywebviewApi)[] = [
   "set_read_state",
   "respond",
   "open_external",
+  "get_settings",
+  "update_settings",
 ];
 
 function readyApi(): PywebviewApi | null {
@@ -93,5 +101,13 @@ export const desktopBridge: DesktopBridge = {
   },
   async openExternal(url) {
     return (await pywebviewApi()).open_external(url);
+  },
+  async getSettings() {
+    const result = readSettingsResult(await (await pywebviewApi()).get_settings());
+    if (!result.ok) throw new Error(result.error.message);
+    return result.settings;
+  },
+  async updateSettings(settings) {
+    return readSettingsResult(await (await pywebviewApi()).update_settings(settings));
   },
 };

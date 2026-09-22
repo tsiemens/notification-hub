@@ -6,9 +6,11 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from notification_hub.client import NetworkError, ProtocolError, ServerError
+from notification_hub.config import ConfigurationError
 from notification_hub.domain import ResponseState, ValidationError
 
 from .controller import GuiController
+from .settings import ClientSettingsStore, SettingsWriteError
 
 MAX_NOTIFICATION_IDS = 10_000
 MAX_RESPONSE_MESSAGE = 16 * 1024
@@ -21,9 +23,11 @@ class GuiBridge:
         self,
         controller: GuiController,
         *,
+        settings_store: ClientSettingsStore | None = None,
         external_opener: Callable[[str], object] = webbrowser.open,
     ) -> None:
         self._controller = controller
+        self._settings_store = settings_store
         self._external_opener = external_opener
 
     def get_initial_state(self) -> dict[str, Any]:
@@ -37,6 +41,30 @@ class GuiBridge:
         ):
             raise ValueError("after_revision must be a non-negative integer")
         return self._controller.get_updates(after_revision)
+
+    def get_settings(self) -> dict[str, Any]:
+        if self._settings_store is None:
+            return self._failure(
+                "settings_unavailable", "Settings are unavailable in this client.", False
+            )
+        return {"ok": True, "settings": self._settings_store.get().to_dict()}
+
+    def update_settings(self, settings: object) -> dict[str, Any]:
+        if self._settings_store is None:
+            return self._failure(
+                "settings_unavailable", "Settings are unavailable in this client.", False
+            )
+        try:
+            saved = self._settings_store.update(settings)
+            return {"ok": True, "settings": saved.to_dict()}
+        except ConfigurationError as exc:
+            return self._failure("invalid_settings", str(exc), False)
+        except SettingsWriteError:
+            return self._failure(
+                "settings_write_failed",
+                "Settings could not be saved. The previous settings are still active.",
+                True,
+            )
 
     def set_read_state(self, notification_ids: object, read: object) -> dict[str, Any]:
         try:
