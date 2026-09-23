@@ -8,6 +8,7 @@ import { readSettingsResult, type ClientSettings } from "@/model/settings";
 const original: ClientSettings = {
   theme: "system",
   sound: "response_required",
+  sound_path: "",
   hide_read: false,
   raw_markdown: false,
   views: [{ id: "ops", name: "Operations", rules: [{ domain_regex: "^ops" }] }],
@@ -20,6 +21,8 @@ function bridge(updateSettings = vi.fn()): DesktopBridge {
     setReadState: vi.fn(),
     respond: vi.fn(),
     openExternal: vi.fn(),
+    chooseSoundFile: vi.fn(),
+    resolveSoundPath: vi.fn(),
     getSettings: vi.fn(),
     updateSettings,
   };
@@ -78,6 +81,25 @@ describe("settings contract", () => {
     expect(wrapper.get('[role="alert"]').text()).toBe("Disk is read-only.");
     expect(wrapper.emitted("saved")).toBeUndefined();
     expect(wrapper.find('[role="dialog"]').exists()).toBe(true);
+  });
+
+  it("supports an editable custom path, file chooser, and inline validation", async () => {
+    const api = bridge();
+    vi.mocked(api.chooseSoundFile).mockResolvedValue("/sounds/chime.wav");
+    vi.mocked(api.resolveSoundPath).mockResolvedValue({
+      ok: true, path: "/sounds/chime.wav", uri: "file:///sounds/chime.wav",
+    });
+    const wrapper = mount(SettingsDialog, { props: { settings: original, bridge: api } });
+
+    await wrapper.findAll("button").find((button) => button.text() === "Choose…")!.trigger("click");
+    await flushPromises();
+    expect((wrapper.get('.path-control input').element as HTMLInputElement).value).toBe("/sounds/chime.wav");
+
+    vi.mocked(api.resolveSoundPath).mockResolvedValueOnce({ ok: false, error: { message: "Missing; bundled sound will be used." } });
+    await wrapper.get('.path-control input').setValue("/missing.wav");
+    await wrapper.get('.path-control input').trigger("blur");
+    await flushPromises();
+    expect(wrapper.get('[role="status"]').text()).toContain("bundled sound");
   });
 
   it("supports adding, removing, and reordering views and rules", async () => {

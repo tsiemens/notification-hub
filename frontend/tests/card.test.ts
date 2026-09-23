@@ -8,6 +8,7 @@ import type { Notification, ResponseOption } from "@/model/protocol";
 const api = {
   getInitialState: vi.fn(), getUpdates: vi.fn(), setReadState: vi.fn(), respond: vi.fn(),
   openExternal: vi.fn(async () => ({ ok: true })), getSettings: vi.fn(), updateSettings: vi.fn(),
+  chooseSoundFile: vi.fn(), resolveSoundPath: vi.fn(),
 } as DesktopBridge;
 
 const modes: Record<ResponseOption["message_mode"], ResponseOption> = {

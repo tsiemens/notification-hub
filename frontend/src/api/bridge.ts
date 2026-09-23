@@ -12,6 +12,8 @@ export interface PywebviewApi {
   open_external(url: string): Promise<{ ok: boolean }>;
   get_settings(): Promise<unknown>;
   update_settings(settings: ClientSettings): Promise<unknown>;
+  choose_sound_file(): Promise<unknown>;
+  resolve_sound_path(path: string): Promise<unknown>;
 }
 
 declare global {
@@ -28,6 +30,8 @@ export interface DesktopBridge {
   openExternal(url: string): Promise<{ ok: boolean }>;
   getSettings(): Promise<ClientSettings>;
   updateSettings(settings: ClientSettings): Promise<SettingsResult>;
+  chooseSoundFile(): Promise<string | null>;
+  resolveSoundPath(path: string): Promise<{ ok: true; path: string; uri: string } | { ok: false; error: { message: string } }>;
 }
 
 async function pywebviewApi(): Promise<PywebviewApi> {
@@ -43,6 +47,8 @@ const API_METHODS: (keyof PywebviewApi)[] = [
   "open_external",
   "get_settings",
   "update_settings",
+  "choose_sound_file",
+  "resolve_sound_path",
 ];
 
 function readyApi(): PywebviewApi | null {
@@ -109,5 +115,16 @@ export const desktopBridge: DesktopBridge = {
   },
   async updateSettings(settings) {
     return readSettingsResult(await (await pywebviewApi()).update_settings(settings));
+  },
+  async chooseSoundFile() {
+    const value = await (await pywebviewApi()).choose_sound_file() as { ok?: boolean; path?: unknown; error?: { message?: unknown } };
+    if (!value.ok) throw new Error(typeof value.error?.message === "string" ? value.error.message : "The file chooser failed.");
+    if (value.path !== null && typeof value.path !== "string") throw new Error("The desktop bridge returned an invalid path.");
+    return value.path ?? null;
+  },
+  async resolveSoundPath(path) {
+    const value = await (await pywebviewApi()).resolve_sound_path(path) as { ok?: boolean; path?: unknown; uri?: unknown; error?: { message?: unknown } };
+    if (value.ok && typeof value.path === "string" && typeof value.uri === "string") return { ok: true, path: value.path, uri: value.uri };
+    return { ok: false, error: { message: typeof value.error?.message === "string" ? value.error.message : "The custom sound is unavailable; the bundled sound will be used." } };
   },
 };

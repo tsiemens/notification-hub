@@ -40,6 +40,7 @@ def _settings() -> dict[str, object]:
     return {
         "theme": "dark",
         "sound": "all",
+        "sound_path": "/tmp/chime.wav",
         "hide_read": True,
         "raw_markdown": True,
         "views": [

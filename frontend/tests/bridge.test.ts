@@ -26,6 +26,8 @@ describe("desktop bridge readiness", () => {
       open_external: vi.fn(),
       get_settings: vi.fn(),
       update_settings: vi.fn(),
+      choose_sound_file: vi.fn(),
+      resolve_sound_path: vi.fn(),
     });
     await vi.advanceTimersByTimeAsync(25);
 

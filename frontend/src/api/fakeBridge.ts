@@ -5,6 +5,7 @@ import type { ClientSettings } from "@/model/settings";
 let settings: ClientSettings = {
   theme: "system",
   sound: "response_required",
+  sound_path: "",
   hide_read: false,
   raw_markdown: false,
   views: [{ id: "development", name: "Development", rules: [{ tag_regex: "^development$" }] }],
@@ -80,5 +81,11 @@ export const fakePywebviewApi: PywebviewApi = {
   async update_settings(updated) {
     settings = structuredClone(updated);
     return { ok: true, settings: structuredClone(settings) };
+  },
+  async choose_sound_file() {
+    return { ok: true, path: null };
+  },
+  async resolve_sound_path(path) {
+    return { ok: false, error: { message: `Development mode cannot open ${path}.` } };
   },
 };

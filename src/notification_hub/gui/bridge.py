@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import webbrowser
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -25,10 +26,15 @@ class GuiBridge:
         *,
         settings_store: ClientSettingsStore | None = None,
         external_opener: Callable[[str], object] = webbrowser.open,
+        sound_file_chooser: Callable[[], str | None] | None = None,
     ) -> None:
         self._controller = controller
         self._settings_store = settings_store
         self._external_opener = external_opener
+        self._sound_file_chooser = sound_file_chooser
+
+    def set_sound_file_chooser(self, chooser: Callable[[], str | None]) -> None:
+        self._sound_file_chooser = chooser
 
     def get_initial_state(self) -> dict[str, Any]:
         return self._controller.get_initial_state()
@@ -65,6 +71,39 @@ class GuiBridge:
                 "Settings could not be saved. The previous settings are still active.",
                 True,
             )
+
+    def choose_sound_file(self) -> dict[str, Any]:
+        if self._sound_file_chooser is None:
+            return self._failure("chooser_unavailable", "The file chooser is unavailable.", False)
+        try:
+            return {"ok": True, "path": self._sound_file_chooser()}
+        except (OSError, RuntimeError):
+            return self._failure("chooser_failed", "The audio file could not be selected.", True)
+
+    def resolve_sound_path(self, value: object) -> dict[str, Any]:
+        """Validate a custom sound immediately before playback and return its local URI."""
+        if not isinstance(value, str) or not value or "\x00" in value:
+            return self._failure("invalid_sound", "Choose a local audio file.", False)
+        path = Path(value).expanduser()
+        try:
+            path = path.resolve(strict=True)
+            if not path.is_file() or not path.stat().st_size:
+                raise OSError
+            with path.open("rb") as stream:
+                stream.read(1)
+        except OSError:
+            return self._failure(
+                "invalid_sound",
+                "The custom sound is missing or unreadable; the bundled sound will be used.",
+                False,
+            )
+        if path.suffix.lower() not in {".wav", ".mp3", ".ogg", ".oga", ".flac", ".m4a"}:
+            return self._failure(
+                "unsupported_sound",
+                "The custom sound format is unsupported; the bundled sound will be used.",
+                False,
+            )
+        return {"ok": True, "path": str(path), "uri": path.as_uri()}
 
     def set_read_state(self, notification_ids: object, read: object) -> dict[str, Any]:
         try:

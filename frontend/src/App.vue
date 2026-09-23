@@ -8,6 +8,7 @@ import SettingsDialog from "@/components/SettingsDialog.vue";
 import type { Notification, ResponseOption } from "@/model/protocol";
 import type { ClientSettings } from "@/model/settings";
 import { installTheme } from "@/presentation/theme";
+import { BrowserSoundPlayer, NotificationSoundService } from "@/presentation/sound";
 import { createHubStore, type FeedSelection } from "@/stores/hub";
 
 const store = createHubStore();
@@ -44,6 +45,11 @@ let stopped = false;
 let clock = 0;
 let removeThemeListener = (): void => undefined;
 let composing = false;
+const soundService = new NotificationSoundService(
+  new BrowserSoundPlayer(),
+  (path) => desktopBridge.resolveSoundPath(path),
+  (message) => { settingsError.value = message; },
+);
 
 function beginComposition(): void { composing = true; }
 function endComposition(): void { composing = false; }
@@ -53,6 +59,7 @@ async function loadSettings(): Promise<void> {
     const loaded = await desktopBridge.getSettings();
     settings.value = loaded;
     store.setSettings(loaded);
+    soundService.configure(loaded);
   } catch (error) {
     settingsError.value = error instanceof Error ? error.message : "Settings could not be loaded.";
   }
@@ -61,16 +68,28 @@ async function loadSettings(): Promise<void> {
 function settingsSaved(saved: ClientSettings): void {
   settings.value = saved;
   store.setSettings(saved);
+  soundService.configure(saved);
   closeSettings();
 }
 
 async function synchronize(): Promise<void> {
   try {
-    store.hydrate(await desktopBridge.getInitialState());
-    while (!stopped) store.applyBatch(await desktopBridge.getUpdates(store.state.revision));
+    const initial = await desktopBridge.getInitialState();
+    store.hydrate(initial);
+    if (initial.snapshot) soundService.observeInitial(initial.snapshot.sequence);
+    while (!stopped) {
+      const batch = await desktopBridge.getUpdates(store.state.revision);
+      soundService.inspect(batch);
+      store.applyBatch(batch);
+    }
   } catch (error) {
     fatal.value = error instanceof Error ? error.message : "The desktop bridge failed.";
   }
+}
+
+async function start(): Promise<void> {
+  await loadSettings();
+  await synchronize();
 }
 
 function resetFeedPosition(): void {
@@ -280,14 +299,14 @@ onMounted(() => {
   window.addEventListener("keydown", handleShortcut);
   window.addEventListener("compositionstart", beginComposition);
   window.addEventListener("compositionend", endComposition);
-  void loadSettings();
-  void synchronize();
+  void start();
   clock = window.setInterval(() => { now.value = Date.now(); }, 60_000);
 });
 onBeforeUnmount(() => {
   stopped = true;
   window.clearInterval(clock);
   removeThemeListener();
+  soundService.stop();
   window.removeEventListener("keydown", handleShortcut);
   window.removeEventListener("compositionstart", beginComposition);
   window.removeEventListener("compositionend", endComposition);

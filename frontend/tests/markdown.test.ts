@@ -13,6 +13,8 @@ function bridge(): DesktopBridge {
     openExternal: vi.fn(async () => ({ ok: true })),
     getSettings: vi.fn(),
     updateSettings: vi.fn(),
+    chooseSoundFile: vi.fn(),
+    resolveSoundPath: vi.fn(),
   };
 }
 

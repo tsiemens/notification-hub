@@ -26,6 +26,7 @@ const draft = ref<ClientSettings>(cloneSettings(props.settings));
 const saving = ref(false);
 const error = ref<string | null>(null);
 const closeButton = ref<HTMLButtonElement | null>(null);
+const soundPathError = ref<string | null>(null);
 let nextId = 1;
 
 onMounted(() => closeButton.value?.focus());
@@ -98,6 +99,27 @@ function cleanDraft(): ClientSettings {
   return result;
 }
 
+async function chooseSound(): Promise<void> {
+  error.value = null;
+  try {
+    const path = await props.bridge.chooseSoundFile();
+    if (path !== null) {
+      draft.value.sound_path = path;
+      await validateSoundPath();
+    }
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : "The file chooser failed.";
+  }
+}
+
+async function validateSoundPath(): Promise<void> {
+  soundPathError.value = null;
+  if (!draft.value.sound_path) return;
+  const result = await props.bridge.resolveSoundPath(draft.value.sound_path);
+  if (result.ok) draft.value.sound_path = result.path;
+  else soundPathError.value = result.error.message;
+}
+
 async function save(): Promise<void> {
   error.value = null;
   if (draft.value.views.some((view) => view.rules.some((rule) =>
@@ -142,6 +164,10 @@ async function save(): Promise<void> {
               <option value="never">Never</option><option value="response_required">Responses required</option><option value="all">All notifications</option>
             </select>
           </label>
+          <label>Custom sound file (optional)
+            <span class="path-control"><input v-model="draft.sound_path" type="text" @blur="validateSoundPath"><button type="button" @click="chooseSound">Choose…</button></span>
+          </label>
+          <p v-if="soundPathError" class="inline-error" role="status">{{ soundPathError }}</p>
           <label class="checkbox-label"><input v-model="draft.hide_read" type="checkbox"> Hide read notifications</label>
           <label class="checkbox-label"><input v-model="draft.raw_markdown" type="checkbox"> Show raw Markdown by default</label>
         </fieldset>

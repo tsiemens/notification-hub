@@ -182,15 +182,17 @@ class ClientConfig:
     hide_read: bool = False
     raw_markdown: bool = False
     views: tuple[CustomView, ...] = ()
+    sound_path: str = ""
 
     @property
     def settings(self) -> ClientSettings:
         return ClientSettings(
-            self.theme,
-            self.sound,
-            self.hide_read,
-            self.raw_markdown,
-            self.views,
+            theme=self.theme,
+            sound=self.sound,
+            hide_read=self.hide_read,
+            raw_markdown=self.raw_markdown,
+            views=self.views,
+            sound_path=self.sound_path,
         )
 
 
@@ -201,11 +203,13 @@ class ClientSettings:
     hide_read: bool = False
     raw_markdown: bool = False
     views: tuple[CustomView, ...] = ()
+    sound_path: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "theme": self.theme,
             "sound": self.sound,
+            "sound_path": self.sound_path,
             "hide_read": self.hide_read,
             "raw_markdown": self.raw_markdown,
             "views": [
@@ -379,15 +383,18 @@ def load_notifier_config(path: Path | None = None) -> NotifierConfig:
 
 def _client_settings(data: dict[str, Any]) -> ClientSettings:
     ui = _table(data, "ui")
-    _only(ui, {"theme", "sound", "hide_read", "raw_markdown"}, "ui")
+    _only(ui, {"theme", "sound", "sound_path", "hide_read", "raw_markdown"}, "ui")
     theme = ui.get("theme", "system")
     sound = ui.get("sound", "response_required")
+    sound_path = ui.get("sound_path", "")
     if theme not in {"light", "dark", "system"} or sound not in {
         "never",
         "response_required",
         "all",
     }:
         raise ConfigurationError("ui theme or sound setting is invalid")
+    if not isinstance(sound_path, str) or "\x00" in sound_path:
+        raise ConfigurationError("ui.sound_path must be a path string")
     views: list[CustomView] = []
     view_values = data.get("views", [])
     if not isinstance(view_values, list):
@@ -431,11 +438,12 @@ def _client_settings(data: dict[str, Any]) -> ClientSettings:
     if len({view.id for view in views}) != len(views):
         raise ConfigurationError("view ids must be unique")
     return ClientSettings(
-        theme,
-        sound,
-        _boolean(ui.get("hide_read", False), "ui.hide_read"),
-        _boolean(ui.get("raw_markdown", False), "ui.raw_markdown"),
-        tuple(views),
+        theme=theme,
+        sound=sound,
+        hide_read=_boolean(ui.get("hide_read", False), "ui.hide_read"),
+        raw_markdown=_boolean(ui.get("raw_markdown", False), "ui.raw_markdown"),
+        views=tuple(views),
+        sound_path=sound_path,
     )
 
 
@@ -443,13 +451,16 @@ def parse_client_settings(value: object) -> ClientSettings:
     """Validate the bridge-visible presentation settings object."""
     if not isinstance(value, dict):
         raise ConfigurationError("settings must be an object")
-    _only(value, {"theme", "sound", "hide_read", "raw_markdown", "views"}, "settings")
-    missing = {"theme", "sound", "hide_read", "raw_markdown", "views"} - set(value)
+    _only(value, {"theme", "sound", "sound_path", "hide_read", "raw_markdown", "views"}, "settings")
+    missing = {"theme", "sound", "sound_path", "hide_read", "raw_markdown", "views"} - set(value)
     if missing:
         raise ConfigurationError(f"missing settings value(s): {', '.join(sorted(missing))}")
     return _client_settings(
         {
-            "ui": {key: value[key] for key in ("theme", "sound", "hide_read", "raw_markdown")},
+            "ui": {
+                key: value[key]
+                for key in ("theme", "sound", "sound_path", "hide_read", "raw_markdown")
+            },
             "views": value["views"],
         }
     )
@@ -471,12 +482,13 @@ def load_client_config(path: Path | None = None) -> ClientConfig:
     if not isinstance(key_file, str) or not key_file:
         raise ConfigurationError("auth.private_key_file must be a non-empty path string")
     return ClientConfig(
-        _remote_server(_table(data, "server")),
-        key_id,
-        Path(key_file).expanduser(),
-        settings.theme,
-        settings.sound,
-        settings.hide_read,
-        settings.raw_markdown,
-        settings.views,
+        server=_remote_server(_table(data, "server")),
+        key_id=key_id,
+        private_key_file=Path(key_file).expanduser(),
+        theme=settings.theme,
+        sound=settings.sound,
+        hide_read=settings.hide_read,
+        raw_markdown=settings.raw_markdown,
+        views=settings.views,
+        sound_path=settings.sound_path,
     )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 
 from notification_hub.client import NetworkError, ServerError
 from notification_hub.client.models import MutationResult, parse_notification
@@ -157,3 +158,19 @@ private_key_file = "/secret/private.pem"
     write_error = bridge.update_settings(loaded["settings"])
     assert write_error["error"]["code"] == "settings_write_failed"
     assert "secret" not in str(write_error)
+
+
+def test_sound_file_selection_and_playback_path_validation(tmp_path: Path) -> None:
+    audio = tmp_path / "tone.wav"
+    audio.write_bytes(b"RIFFgenerated-test-tone")
+    bridge = GuiBridge(StubController(), sound_file_chooser=lambda: str(audio))  # type: ignore[arg-type]
+
+    assert bridge.choose_sound_file() == {"ok": True, "path": str(audio)}
+    resolved = bridge.resolve_sound_path(str(audio.parent / "." / audio.name))
+    assert resolved == {"ok": True, "path": str(audio.resolve()), "uri": audio.resolve().as_uri()}
+
+    missing = bridge.resolve_sound_path(str(tmp_path / "missing.wav"))
+    assert missing["error"]["code"] == "invalid_sound"
+    unsupported = tmp_path / "tone.txt"
+    unsupported.write_text("tone", encoding="utf-8")
+    assert bridge.resolve_sound_path(str(unsupported))["error"]["code"] == "unsupported_sound"

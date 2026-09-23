@@ -129,3 +129,5 @@ article h2 { margin: 0.35rem 0 0.45rem; color: inherit; font-size: 1.05rem; }
   nav { max-height: 14rem; border-right: 0; border-bottom: 1px solid var(--border); }
   main { overflow-y: visible; } .feed-toolbar { top: 0; }
 }
+.path-control { display: flex; gap: 0.5rem; }
+.path-control input { flex: 1; }

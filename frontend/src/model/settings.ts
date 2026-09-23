@@ -20,6 +20,7 @@ export interface CustomView {
 export interface ClientSettings {
   theme: Theme;
   sound: SoundPolicy;
+  sound_path: string;
   hide_read: boolean;
   raw_markdown: boolean;
   views: CustomView[];
@@ -66,10 +67,11 @@ function readRule(value: unknown): ViewRule {
 
 export function readSettings(value: unknown): ClientSettings {
   if (!isRecord(value)) invalid();
-  if (!hasOnly(value, ["theme", "sound", "hide_read", "raw_markdown", "views"])) invalid();
-  const { theme, sound, hide_read, raw_markdown, views } = value;
+  if (!hasOnly(value, ["theme", "sound", "sound_path", "hide_read", "raw_markdown", "views"])) invalid();
+  const { theme, sound, sound_path, hide_read, raw_markdown, views } = value;
   if (!(["light", "dark", "system"] as unknown[]).includes(theme)) invalid();
   if (!(["never", "response_required", "all"] as unknown[]).includes(sound)) invalid();
+  if (typeof sound_path !== "string" || sound_path.includes("\0")) invalid();
   if (typeof hide_read !== "boolean" || typeof raw_markdown !== "boolean" || !Array.isArray(views)) invalid();
   if (views.length > MAX_CUSTOM_VIEWS) invalid();
   const ids = new Set<string>();
@@ -82,7 +84,7 @@ export function readSettings(value: unknown): ClientSettings {
     if (!view.rules.length || view.rules.length > MAX_VIEW_RULES) invalid();
     return { id: view.id, name: view.name, rules: view.rules.map(readRule) };
   });
-  return { theme: theme as Theme, sound: sound as SoundPolicy, hide_read, raw_markdown, views: parsedViews };
+  return { theme: theme as Theme, sound: sound as SoundPolicy, sound_path, hide_read, raw_markdown, views: parsedViews };
 }
 
 export function readSettingsResult(value: unknown): SettingsResult {

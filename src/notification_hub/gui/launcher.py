@@ -55,6 +55,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 js_api=bridge,
                 min_size=(720, 480),
             )
+
+            def choose_sound_file() -> str | None:
+                selected = window.create_file_dialog(
+                    webview.FileDialog.OPEN,
+                    allow_multiple=False,
+                    file_types=("Audio files (*.wav;*.mp3;*.ogg;*.oga;*.flac;*.m4a)",),
+                )
+                return str(selected[0]) if selected else None
+
+            bridge.set_sound_file_chooser(choose_sound_file)
             window.events.closed += lambda *_args: controller.stop()
             controller.start()
             webview.start(gui="gtk", debug=False)
