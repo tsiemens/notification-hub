@@ -39,7 +39,7 @@ export class BrowserSoundPlayer implements SoundPlayer {
 }
 
 export class NotificationSoundService {
-  private settings: Pick<ClientSettings, "sound" | "sound_path"> = { sound: "never", sound_path: "" };
+  private settings: Pick<ClientSettings, "sound" | "response_required_sound_path" | "informational_sound_path"> = { sound: "never", response_required_sound_path: "", informational_sound_path: "" };
   private highestSequence = 0;
   private initialSnapshotComplete = false;
   private queued: SoundOutcome | null = null;
@@ -57,7 +57,7 @@ export class NotificationSoundService {
     this.initialSnapshotComplete = true;
   }
 
-  configure(settings: Pick<ClientSettings, "sound" | "sound_path">): void {
+  configure(settings: Pick<ClientSettings, "sound" | "response_required_sound_path" | "informational_sound_path">): void {
     this.settings = settings;
     this.reportError(null);
     if (settings.sound === "never") this.cancel();
@@ -106,8 +106,9 @@ export class NotificationSoundService {
     this.queued = null;
     if (!outcome || this.settings.sound === "never") return;
     try {
-      if (this.settings.sound_path) {
-        const resolved = await this.resolvePath(this.settings.sound_path);
+      const path = outcome === "response_required" ? this.settings.response_required_sound_path : this.settings.informational_sound_path;
+      if (path) {
+        const resolved = await this.resolvePath(path);
         if (resolved.ok) {
           try {
             await this.player.playUri(resolved.uri);

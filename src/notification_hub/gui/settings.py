@@ -33,7 +33,8 @@ def _serialize(settings: ClientSettings) -> str:
         "[ui]",
         f"theme = {_toml_string(settings.theme)}",
         f"sound = {_toml_string(settings.sound)}",
-        f"sound_path = {_toml_string(settings.sound_path)}",
+        f"response_required_sound_path = {_toml_string(settings.response_required_sound_path)}",
+        f"informational_sound_path = {_toml_string(settings.informational_sound_path)}",
         f"hide_read = {str(settings.hide_read).lower()}",
         f"raw_markdown = {str(settings.raw_markdown).lower()}",
     ]

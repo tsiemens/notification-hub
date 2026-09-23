@@ -99,7 +99,7 @@ describe("hub store", () => {
       notification("no-match", "2026-01-01T00:00:00.000Z", 1, { domain: "other", sender: "human", tags: ["routine"] }),
     ]));
     store.setSettings({
-      theme: "system", sound: "never", sound_path: "", hide_read: false, raw_markdown: false,
+      theme: "system", sound: "never", response_required_sound_path: "", informational_sound_path: "", hide_read: false, raw_markdown: false,
       views: [{ id: "ops", name: "Ops", rules: [
         { domain_regex: "^ops$", sender_regex: "deploy" },
         { tag_regex: "urgent" },
@@ -114,7 +114,7 @@ describe("hub store", () => {
     const store = createHubStore();
     store.hydrate(initial([notification("match", "2026-01-01T00:00:00.000Z", 1, { sender: "robot" })]));
     store.setSettings({
-      theme: "system", sound: "never", sound_path: "", hide_read: false, raw_markdown: false,
+      theme: "system", sound: "never", response_required_sound_path: "", informational_sound_path: "", hide_read: false, raw_markdown: false,
       views: [
         { id: "mixed", name: "Mixed", rules: [{ domain_regex: "[" }, { sender_regex: "ROBOT" }] },
         { id: "broken", name: "Broken", rules: [{ tag_regex: "(" }] },
@@ -137,7 +137,7 @@ describe("hub store", () => {
       pending_response_count: 0, latest_summary: domainItem.summary,
     }] } });
     store.setSettings({
-      theme: "system", sound: "never", sound_path: "", hide_read: false, raw_markdown: false,
+      theme: "system", sound: "never", response_required_sound_path: "", informational_sound_path: "", hide_read: false, raw_markdown: false,
       views: [{ id: "shared", name: "shared", rules: [{ sender_regex: "robot" }] }],
     });
 
@@ -152,7 +152,7 @@ describe("hub store", () => {
     const item = notification("a", "2026-01-01T00:00:00.000Z", 1, { domain: "ops", sender: "human" });
     store.hydrate(initial([item]));
     store.setSettings({
-      theme: "system", sound: "never", sound_path: "", hide_read: false, raw_markdown: false,
+      theme: "system", sound: "never", response_required_sound_path: "", informational_sound_path: "", hide_read: false, raw_markdown: false,
       views: [{ id: "bots", name: "Bots", rules: [{ sender_regex: "bot" }] }],
     });
     store.select("view:bots");
@@ -171,7 +171,7 @@ describe("hub store", () => {
     const read = notification("read", "2026-01-01T00:00:00.000Z", 1, { domain: "ops", read_at: "2026-01-03T00:00:00.000Z" });
     store.hydrate(initial([unread, read]));
     const settings = {
-      theme: "system" as const, sound: "never" as const, sound_path: "", raw_markdown: false,
+      theme: "system" as const, sound: "never" as const, response_required_sound_path: "", informational_sound_path: "", raw_markdown: false,
       views: [{ id: "ops", name: "Ops", rules: [{ domain_regex: "ops" }] }],
     };
     store.setSettings({ ...settings, hide_read: true });
@@ -186,11 +186,11 @@ describe("hub store", () => {
   it("returns to all when the active view is removed", () => {
     const store = createHubStore();
     store.setSettings({
-      theme: "system", sound: "never", sound_path: "", hide_read: false, raw_markdown: false,
+      theme: "system", sound: "never", response_required_sound_path: "", informational_sound_path: "", hide_read: false, raw_markdown: false,
       views: [{ id: "temporary", name: "Temporary", rules: [{ domain_regex: "." }] }],
     });
     store.select("view:temporary");
-    store.setSettings({ theme: "system", sound: "never", sound_path: "", hide_read: false, raw_markdown: false, views: [] });
+    store.setSettings({ theme: "system", sound: "never", response_required_sound_path: "", informational_sound_path: "", hide_read: false, raw_markdown: false, views: [] });
     expect(store.state.selection).toBe("all");
   });
 

@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => {
   }));
   const setReadState = vi.fn(async (ids: string[]) => ({ ok: true as const, notifications: ids.map((id) => ({ ...items[Number(id)], read_at: "2026-01-02T00:00:00.000Z", version: 2 })) }));
   const respond = vi.fn();
-  const getSettings = vi.fn(async (): Promise<ClientSettings> => ({ theme: "system", sound: "response_required", sound_path: "", hide_read: false, raw_markdown: false, views: [] }));
+  const getSettings = vi.fn(async (): Promise<ClientSettings> => ({ theme: "system", sound: "response_required", response_required_sound_path: "", informational_sound_path: "", hide_read: false, raw_markdown: false, views: [] }));
   const getInitialState = vi.fn(async (): Promise<InitialState> => ({ revision: 1, connection: { state: "connected", message: null }, snapshot: {
     sequence: 1,
     domains: [{ name: "large", last_activity_at: items[119].created_at, notification_count: 120, unread_count: 120, pending_response_count: 0, latest_summary: "Notice 119" }],
@@ -125,7 +125,7 @@ describe("large feed", () => {
       },
     });
     mocks.getSettings.mockResolvedValueOnce({
-      theme: "system", sound: "never", sound_path: "", hide_read: false, raw_markdown: false,
+      theme: "system", sound: "never", response_required_sound_path: "", informational_sound_path: "", hide_read: false, raw_markdown: false,
       views: [{ id: "tests", name: "Test sender", rules: [{ sender_regex: "^TESTS$" }] }],
     });
     vi.spyOn(window, "confirm").mockReturnValue(true);

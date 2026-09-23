@@ -8,7 +8,8 @@ import { readSettingsResult, type ClientSettings } from "@/model/settings";
 const original: ClientSettings = {
   theme: "system",
   sound: "response_required",
-  sound_path: "",
+  response_required_sound_path: "",
+  informational_sound_path: "",
   hide_read: false,
   raw_markdown: false,
   views: [{ id: "ops", name: "Operations", rules: [{ domain_regex: "^ops" }] }],
@@ -94,6 +95,13 @@ describe("settings contract", () => {
     await wrapper.findAll("button").find((button) => button.text() === "Choose…")!.trigger("click");
     await flushPromises();
     expect((wrapper.get('.path-control input').element as HTMLInputElement).value).toBe("/sounds/chime.wav");
+    expect((wrapper.findAll('.path-control input')[1].element as HTMLInputElement).value).toBe("");
+
+    await wrapper.findAll('.path-control input')[1].setValue("/sounds/info.wav");
+    await wrapper.findAll('.path-control input')[1].trigger("blur");
+    await flushPromises();
+    expect((wrapper.findAll('.path-control input')[0].element as HTMLInputElement).value).toBe("/sounds/chime.wav");
+    expect(vi.mocked(api.resolveSoundPath)).toHaveBeenCalledWith("/sounds/info.wav");
 
     vi.mocked(api.resolveSoundPath).mockResolvedValueOnce({ ok: false, error: { message: "Missing; bundled sound will be used." } });
     await wrapper.get('.path-control input').setValue("/missing.wav");

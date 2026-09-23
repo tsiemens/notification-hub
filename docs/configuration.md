@@ -109,7 +109,8 @@ private_key_file = "/home/you/.config/notification-hub/desktop-ui.key"
 [ui]
 theme = "system"
 sound = "response_required"
-sound_path = ""
+response_required_sound_path = ""
+informational_sound_path = ""
 hide_read = false
 raw_markdown = false
 
@@ -133,8 +134,11 @@ keys](signing-keys.md).
 
 The desktop Settings dialog edits the `[ui]` values and custom `[[views]]`.
 `theme` is `system`, `light`, or `dark`. `sound` is `never`,
-`response_required`, or `all`; `sound_path` optionally names a local audio
-file. `hide_read` hides read notifications, while `raw_markdown` displays
+`response_required`, or `all`. `response_required_sound_path` and
+`informational_sound_path` optionally name separate local audio files. An empty
+path uses that notification type's generated sound. Existing `sound_path`
+values are loaded into both fields until the settings are saved. `hide_read`
+hides read notifications, while `raw_markdown` displays
 message source instead of rendered Markdown. A custom view needs a unique
 local `id`, a display `name`, and at least one `[[views.rules]]` entry. Rule
 fields are `domain_regex`, `sender_regex`, and `tag_regex`; a rule may use one

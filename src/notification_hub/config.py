@@ -182,7 +182,8 @@ class ClientConfig:
     hide_read: bool = False
     raw_markdown: bool = False
     views: tuple[CustomView, ...] = ()
-    sound_path: str = ""
+    response_required_sound_path: str = ""
+    informational_sound_path: str = ""
 
     @property
     def settings(self) -> ClientSettings:
@@ -192,7 +193,8 @@ class ClientConfig:
             hide_read=self.hide_read,
             raw_markdown=self.raw_markdown,
             views=self.views,
-            sound_path=self.sound_path,
+            response_required_sound_path=self.response_required_sound_path,
+            informational_sound_path=self.informational_sound_path,
         )
 
 
@@ -203,13 +205,15 @@ class ClientSettings:
     hide_read: bool = False
     raw_markdown: bool = False
     views: tuple[CustomView, ...] = ()
-    sound_path: str = ""
+    response_required_sound_path: str = ""
+    informational_sound_path: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "theme": self.theme,
             "sound": self.sound,
-            "sound_path": self.sound_path,
+            "response_required_sound_path": self.response_required_sound_path,
+            "informational_sound_path": self.informational_sound_path,
             "hide_read": self.hide_read,
             "raw_markdown": self.raw_markdown,
             "views": [
@@ -383,18 +387,44 @@ def load_notifier_config(path: Path | None = None) -> NotifierConfig:
 
 def _client_settings(data: dict[str, Any]) -> ClientSettings:
     ui = _table(data, "ui")
-    _only(ui, {"theme", "sound", "sound_path", "hide_read", "raw_markdown"}, "ui")
+    _only(
+        ui,
+        {
+            "theme",
+            "sound",
+            "sound_path",
+            "response_required_sound_path",
+            "informational_sound_path",
+            "hide_read",
+            "raw_markdown",
+        },
+        "ui",
+    )
     theme = ui.get("theme", "system")
     sound = ui.get("sound", "response_required")
-    sound_path = ui.get("sound_path", "")
+    legacy_sound_path = ui.get("sound_path", "")
+    migrating_legacy_path = not (
+        {"response_required_sound_path", "informational_sound_path"} & ui.keys()
+    )
+    response_required_sound_path = ui.get(
+        "response_required_sound_path", legacy_sound_path if migrating_legacy_path else ""
+    )
+    informational_sound_path = ui.get(
+        "informational_sound_path", legacy_sound_path if migrating_legacy_path else ""
+    )
     if theme not in {"light", "dark", "system"} or sound not in {
         "never",
         "response_required",
         "all",
     }:
         raise ConfigurationError("ui theme or sound setting is invalid")
-    if not isinstance(sound_path, str) or "\x00" in sound_path:
-        raise ConfigurationError("ui.sound_path must be a path string")
+    for key, path in (
+        ("sound_path", legacy_sound_path),
+        ("response_required_sound_path", response_required_sound_path),
+        ("informational_sound_path", informational_sound_path),
+    ):
+        if not isinstance(path, str) or "\x00" in path:
+            raise ConfigurationError(f"ui.{key} must be a path string")
     views: list[CustomView] = []
     view_values = data.get("views", [])
     if not isinstance(view_values, list):
@@ -443,7 +473,8 @@ def _client_settings(data: dict[str, Any]) -> ClientSettings:
         hide_read=_boolean(ui.get("hide_read", False), "ui.hide_read"),
         raw_markdown=_boolean(ui.get("raw_markdown", False), "ui.raw_markdown"),
         views=tuple(views),
-        sound_path=sound_path,
+        response_required_sound_path=response_required_sound_path,
+        informational_sound_path=informational_sound_path,
     )
 
 
@@ -451,15 +482,42 @@ def parse_client_settings(value: object) -> ClientSettings:
     """Validate the bridge-visible presentation settings object."""
     if not isinstance(value, dict):
         raise ConfigurationError("settings must be an object")
-    _only(value, {"theme", "sound", "sound_path", "hide_read", "raw_markdown", "views"}, "settings")
-    missing = {"theme", "sound", "sound_path", "hide_read", "raw_markdown", "views"} - set(value)
+    _only(
+        value,
+        {
+            "theme",
+            "sound",
+            "response_required_sound_path",
+            "informational_sound_path",
+            "hide_read",
+            "raw_markdown",
+            "views",
+        },
+        "settings",
+    )
+    missing = {
+        "theme",
+        "sound",
+        "response_required_sound_path",
+        "informational_sound_path",
+        "hide_read",
+        "raw_markdown",
+        "views",
+    } - set(value)
     if missing:
         raise ConfigurationError(f"missing settings value(s): {', '.join(sorted(missing))}")
     return _client_settings(
         {
             "ui": {
                 key: value[key]
-                for key in ("theme", "sound", "sound_path", "hide_read", "raw_markdown")
+                for key in (
+                    "theme",
+                    "sound",
+                    "response_required_sound_path",
+                    "informational_sound_path",
+                    "hide_read",
+                    "raw_markdown",
+                )
             },
             "views": value["views"],
         }
@@ -490,7 +548,8 @@ def load_client_config(path: Path | None = None) -> ClientConfig:
         hide_read=settings.hide_read,
         raw_markdown=settings.raw_markdown,
         views=settings.views,
-        sound_path=settings.sound_path,
+        response_required_sound_path=settings.response_required_sound_path,
+        informational_sound_path=settings.informational_sound_path,
     )
 
 

@@ -140,6 +140,22 @@ def test_desktop_loads_presentation_only_file(tmp_path: Path) -> None:
         load_client_config(path)
 
 
+def test_legacy_sound_path_is_migrated_to_both_types(tmp_path: Path) -> None:
+    path = tmp_path / "client.toml"
+    path.write_text('[ui]\nsound_path = "/old.wav"\n', encoding="utf-8")
+    _, settings = load_desktop_config(path)
+    assert settings.response_required_sound_path == "/old.wav"
+    assert settings.informational_sound_path == "/old.wav"
+
+    path.write_text(
+        '[ui]\nsound_path = "/old.wav"\nresponse_required_sound_path = "/new.wav"\n',
+        encoding="utf-8",
+    )
+    _, settings = load_desktop_config(path)
+    assert settings.response_required_sound_path == "/new.wav"
+    assert settings.informational_sound_path == ""
+
+
 @pytest.mark.parametrize(
     "settings",
     [

@@ -5,7 +5,8 @@ import type { ClientSettings } from "@/model/settings";
 let settings: ClientSettings = {
   theme: "system",
   sound: "response_required",
-  sound_path: "",
+  response_required_sound_path: "",
+  informational_sound_path: "",
   hide_read: false,
   raw_markdown: false,
   views: [{ id: "development", name: "Development", rules: [{ tag_regex: "^development$" }] }],
