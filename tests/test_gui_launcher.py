@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from notification_hub.gui.launcher import _gtk_failure
+
 
 def test_gui_package_import_does_not_import_pywebview() -> None:
     result = subprocess.run(
@@ -34,3 +36,19 @@ def test_packaged_frontend_entrypoint_exists_outside_checkout(
         # pywebview generates API proxy methods with `new Function`, which the
         # packaged page must permit or window.pywebview.api remains empty.
         assert "script-src 'self' 'unsafe-eval'" in html
+
+
+def test_linux_desktop_resources_are_packaged() -> None:
+    resources = files("notification_hub.gui").joinpath("resources")
+    with as_file(resources) as path:
+        desktop = (path / "notification-hub.desktop.template").read_text(encoding="utf-8")
+        icon = (path / "notification-hub.svg").read_text(encoding="utf-8")
+    assert "Exec=@NH_CLIENT_EXEC@" in desktop
+    assert "Icon=notification-hub" in desktop
+    assert "<svg" in icon
+
+
+def test_gtk_initialization_error_is_actionable() -> None:
+    message = _gtk_failure(RuntimeError("cannot load WebKit"))
+    assert "Install the GTK 3 and WebKitGTK runtime libraries" in message
+    assert "cannot load WebKit" in message

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import sys
+import threading
+import time
 from collections.abc import Sequence
 from contextlib import ExitStack
 from importlib.resources import as_file, files
@@ -24,7 +26,41 @@ def _parser() -> argparse.ArgumentParser:
         prog="nh-client", description="Notification Hub desktop client"
     )
     parser.add_argument("--config", type=Path, help="client TOML configuration path")
+    parser.add_argument("--smoke-test", action="store_true", help=argparse.SUPPRESS)
     return parser
+
+
+def _gtk_failure(exc: BaseException) -> str:
+    return (
+        "GTK/WebKitGTK could not be initialized. Install the GTK 3 and WebKitGTK "
+        f"runtime libraries for your distribution, then retry ({exc})"
+    )
+
+
+def _install_smoke_probe(window: object, result: list[str]) -> None:
+    """Close a real native window after Vue and the pywebview bridge are usable."""
+
+    def probe() -> None:
+        deadline = time.monotonic() + 15
+        detail = "the packaged Vue application did not become ready"
+        while time.monotonic() < deadline:
+            try:
+                ready = window.evaluate_js(  # type: ignore[attr-defined]
+                    "Boolean(document.querySelector('.app-shell main') "
+                    "&& window.pywebview && window.pywebview.api "
+                    "&& window.pywebview.api.get_initial_state)"
+                )
+                if ready:
+                    result.append("ready")
+                    window.destroy()  # type: ignore[attr-defined]
+                    return
+            except Exception as exc:  # pywebview reports transient load errors here
+                detail = str(exc)
+            time.sleep(0.1)
+        result.append(detail)
+        window.destroy()  # type: ignore[attr-defined]
+
+    threading.Thread(target=probe, name="nh-gui-smoke-probe", daemon=True).start()
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -33,8 +69,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         config_path = (args.config or default_client_config_path()).expanduser()
         config = load_client_config(config_path)
         client = HubClient(config)
-        import webview
-    except (ConfigurationError, OSError, ValueError, ImportError) as exc:
+        try:
+            import webview
+        except ImportError as exc:
+            print(f"nh-client: {_gtk_failure(exc)}", file=sys.stderr)
+            return 1
+    except (ConfigurationError, OSError, ValueError) as exc:
         print(f"nh-client: {exc}", file=sys.stderr)
         return 1
 
@@ -66,10 +106,25 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             bridge.set_sound_file_chooser(choose_sound_file)
             window.events.closed += lambda *_args: controller.stop()
+            smoke_result: list[str] = []
+            if args.smoke_test:
+                window.events.loaded += lambda *_args: _install_smoke_probe(window, smoke_result)
             controller.start()
-            webview.start(gui="gtk", debug=False)
+            try:
+                webview.start(gui="gtk", debug=False)
+            except Exception as exc:
+                from webview.errors import WebViewException
+
+                if not isinstance(exc, (OSError, RuntimeError, WebViewException)):
+                    raise
+                print(f"nh-client: {_gtk_failure(exc)}", file=sys.stderr)
+                return 1
+            if args.smoke_test and smoke_result != ["ready"]:
+                detail = smoke_result[0] if smoke_result else "the window closed before loading"
+                print(f"nh-client: GTK smoke test failed: {detail}", file=sys.stderr)
+                return 1
     except (OSError, RuntimeError) as exc:
-        print(f"nh-client: {exc}", file=sys.stderr)
+        print(f"nh-client: {_gtk_failure(exc)}", file=sys.stderr)
         return 1
     finally:
         controller.stop()

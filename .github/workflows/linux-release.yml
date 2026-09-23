@@ -1,0 +1,91 @@
+name: Linux release artifacts
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  release-artifacts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.5"
+      - run: ./scripts/check-release-assets.sh
+      - run: uv build --out-dir dist
+      - run: uv run python scripts/verify_artifacts.py dist
+      - name: Verify the installed wheel outside the checkout
+        run: |
+          wheel=$(find "$GITHUB_WORKSPACE/dist" -name '*.whl' -print -quit)
+          uv venv /tmp/notification-hub-wheel --python 3.12
+          uv pip install --python /tmp/notification-hub-wheel/bin/python "$wheel"
+          cd /tmp
+          for command in nh-server nh-notifier nh-client-cli nh-client nh-desktop-installer; do
+            "/tmp/notification-hub-wheel/bin/$command" --help >/dev/null
+          done
+          /tmp/notification-hub-wheel/bin/python - <<'PY'
+          from importlib.resources import files
+          root = files("notification_hub.gui")
+          assert root.joinpath("web", "index.html").is_file()
+          assert root.joinpath("resources", "notification-hub.desktop.template").is_file()
+          assert root.joinpath("resources", "notification-hub.svg").is_file()
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-release-artifacts
+          path: dist/
+
+  gtk-webkit-smoke:
+    needs: release-artifacts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.5"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-release-artifacts
+          path: dist
+      - name: Install GTK and WebKitGTK runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            xvfb xauth libgtk-3-0t64 libwebkit2gtk-4.1-0 gir1.2-webkit2-4.1 \
+            libcairo2-dev libgirepository-2.0-dev pkg-config gcc python3-dev
+      - name: Install the wheel with its GUI extra
+        run: |
+          wheel=$(find "$GITHUB_WORKSPACE/dist" -name '*.whl' -print -quit)
+          uv venv /tmp/notification-hub-gtk --python 3.12
+          uv pip install --python /tmp/notification-hub-gtk/bin/python "${wheel}[gui]"
+      - name: Verify GUI installation outside the checkout
+        working-directory: /tmp
+        run: |
+          for command in nh-server nh-notifier nh-client-cli nh-client nh-desktop-installer; do
+            "/tmp/notification-hub-gtk/bin/$command" --help >/dev/null
+          done
+          /tmp/notification-hub-gtk/bin/python - <<'PY'
+          from importlib.resources import files
+          root = files("notification_hub.gui")
+          assert root.joinpath("web", "index.html").is_file()
+          assert root.joinpath("resources", "notification-hub.desktop.template").is_file()
+          assert root.joinpath("resources", "notification-hub.svg").is_file()
+          PY
+      - name: Launch a real GTK/WebKitGTK window under Xvfb
+        working-directory: /tmp
+        run: xvfb-run -a /tmp/notification-hub-gtk/bin/python "$GITHUB_WORKSPACE/scripts/gtk_smoke.py"

@@ -6,16 +6,54 @@ delivered in the phases described in `local_md/design.md`.
 
 ## Installation
 
-From the repository root, install the command-line tools in an isolated
-environment. The editable install makes changes in this checkout available
-without reinstalling:
+For the server, notifier, and headless inspection client, install the base
+package in an isolated environment:
 
 ```sh
-uv tool install --editable .
+uv tool install notification-hub
 ```
 
-This installs `nh-server`, `nh-notifier`, and `nh-client-cli`. Keep the checkout
-in place while using the editable installation.
+This installs `nh-server`, `nh-notifier`, `nh-client-cli`, `nh-client`, and
+`nh-desktop-installer`. Keep the checkout in place only when using
+`uv tool install --editable .` for development.
+
+The desktop client is Linux-only. Install its optional GTK integration with:
+
+```sh
+uv tool install 'notification-hub[gui]'
+```
+
+Python 3.12 or newer, GTK 3, and WebKitGTK 4.1 are supported. The native GTK
+and WebKitGTK libraries come from the operating system, not PyPI. For example,
+install `gir1.2-webkit2-4.1`, `libwebkit2gtk-4.1-0`, `libcairo2-dev`,
+`libgirepository-2.0-dev`, `pkg-config`, and the development package matching
+your Python on current Debian/Ubuntu, or the equivalent WebKitGTK 4.1, GTK 3,
+and PyGObject prerequisites on your distribution. If the backend is
+unavailable, `nh-client` exits with an actionable diagnostic.
+
+The wheel includes freedesktop metadata, but uv does not install shared desktop
+data or run a post-install hook. Register the desktop entry and icon for the
+current user with the packaged command:
+
+```sh
+nh-desktop-installer install
+```
+
+For an install directly from a Git repository, use the same command after
+installing (replace the example URL with the repository URL):
+
+```sh
+uv tool install 'notification-hub[gui] @ git+https://github.com/OWNER/notification-hub.git' &&
+nh-desktop-installer install
+```
+
+Remove the integration with `nh-desktop-installer uninstall` before uninstalling
+the uv tool. If uv's tool executable directory is not on your `PATH`, run
+`"$(uv tool dir --bin)/nh-desktop-installer" install` instead. The command uses
+`$XDG_DATA_HOME` when set to an absolute path, otherwise `~/.local/share`. It
+writes the absolute `nh-client` path into the desktop entry, so the desktop
+session does not need uv's executable directory on its `PATH`. Re-run the
+command if you move that directory.
 
 For development, also create the repository-local environment with the test
 and lint dependencies:
@@ -138,6 +176,19 @@ The Vite development server uses an in-browser fake bridge. A production build
 writes relative assets to `src/notification_hub/gui/web`, where the Python
 launcher loads them through package resources. Run `npm run verify` to type
 check, test, and rebuild those assets.
+
+For a release, `./scripts/check-release-assets.sh` performs a clean frontend
+production build and fails when the committed packaged output is missing or
+stale. Then build and inspect both Python artifacts with:
+
+```sh
+uv build --out-dir dist
+uv run python scripts/verify_artifacts.py dist
+```
+
+The separate Linux CI smoke job installs the built wheel in a fresh environment
+and opens a real GTK/WebKitGTK window under Xvfb. It waits for both the
+pywebview bridge and packaged Vue application before closing the window.
 
 ## Testing
 

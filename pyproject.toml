@@ -14,18 +14,33 @@ nh-server = "notification_hub.server.runner:main"
 nh-notifier = "notification_hub.notifier.cli:main"
 nh-client-cli = "notification_hub.debug_cli.cli:main"
 nh-client = "notification_hub.gui.launcher:main"
+nh-desktop-installer = "notification_hub.gui.desktop_integration:main"
 
 [project.optional-dependencies]
 gui = [
-    "pywebview[gtk]>=5,<7",
+    "pywebview[gtk]>=5,<7; sys_platform == 'linux'",
 ]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build]
+artifacts = [
+    "/src/notification_hub/gui/web/**",
+    "/src/notification_hub/gui/resources/**",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/notification_hub"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/LICENSE",
+    "/README.md",
+    "/pyproject.toml",
+    "/src/notification_hub",
+]
 
 [tool.ruff]
 line-length = 100

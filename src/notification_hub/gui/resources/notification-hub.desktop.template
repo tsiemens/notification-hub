@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Notification Hub
+Comment=Review notifications and approval requests
+Exec=@NH_CLIENT_EXEC@
+Icon=notification-hub
+Terminal=false
+Categories=Utility;Network;
+StartupNotify=true
