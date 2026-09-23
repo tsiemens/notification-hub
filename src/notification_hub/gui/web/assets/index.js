@@ -9003,7 +9003,7 @@ var _hoisted_26$2 = [
 ];
 var _hoisted_27$2 = ["id"];
 var _hoisted_28$2 = { class: "response-buttons" };
-var _hoisted_29$1 = [
+var _hoisted_29$2 = [
 	"disabled",
 	"aria-label",
 	"title",
@@ -9294,7 +9294,7 @@ var NotificationCard_default = /* @__PURE__ */ defineComponent({
 							cx: "15.5",
 							cy: "15.5",
 							r: "2.5"
-						}, null, -1)])])) : (openBlock(), createElementBlock("svg", _hoisted_33$1, [..._cache[12] || (_cache[12] = [createBaseVNode("path", { d: "M4 4h12v9H8l-4 3zM7 7h6M7 10h4M15.5 14v4M13.5 16h4" }, null, -1)])]))]), createBaseVNode("span", null, toDisplayString(option.label), 1)], 10, _hoisted_29$1);
+						}, null, -1)])])) : (openBlock(), createElementBlock("svg", _hoisted_33$1, [..._cache[12] || (_cache[12] = [createBaseVNode("path", { d: "M4 4h12v9H8l-4 3zM7 7h6M7 10h4M15.5 14v4M13.5 16h4" }, null, -1)])]))]), createBaseVNode("span", null, toDisplayString(option.label), 1)], 10, _hoisted_29$2);
 					}), 128))]),
 					__props.pending ? (openBlock(), createElementBlock("p", _hoisted_34$1, "Submitting…")) : createCommentVNode("", true),
 					validationError.value ? (openBlock(), createElementBlock("p", _hoisted_35, toDisplayString(validationError.value), 1)) : createCommentVNode("", true)
@@ -9378,7 +9378,7 @@ var _hoisted_27$1 = [
 	"onClick"
 ];
 var _hoisted_28$1 = ["disabled", "onClick"];
-var _hoisted_29 = ["disabled", "onClick"];
+var _hoisted_29$1 = ["disabled", "onClick"];
 var _hoisted_30 = {
 	key: 0,
 	class: "empty"
@@ -9649,7 +9649,7 @@ var SettingsDialog_default = /* @__PURE__ */ defineComponent({
 								type: "button",
 								disabled: view.rules.length >= unref(32),
 								onClick: ($event) => addRule(viewIndex)
-							}, "Add rule", 8, _hoisted_29)
+							}, "Add rule", 8, _hoisted_29$1)
 						]);
 					}), 128)),
 					!draft.value.views.length ? (openBlock(), createElementBlock("p", _hoisted_30, "No custom views")) : createCommentVNode("", true)
@@ -10037,29 +10037,34 @@ var _hoisted_13 = {
 	class: "fatal",
 	role: "alert"
 };
-var _hoisted_14 = { class: "workspace" };
-var _hoisted_15 = { "aria-label": "Notification views and domains" };
-var _hoisted_16 = ["aria-current"];
-var _hoisted_17 = { class: "nav-title" };
-var _hoisted_18 = ["aria-label"];
-var _hoisted_19 = [
+var _hoisted_14 = {
+	key: 2,
+	class: "fatal",
+	role: "alert"
+};
+var _hoisted_15 = { class: "workspace" };
+var _hoisted_16 = { "aria-label": "Notification views and domains" };
+var _hoisted_17 = ["aria-current"];
+var _hoisted_18 = { class: "nav-title" };
+var _hoisted_19 = ["aria-label"];
+var _hoisted_20 = [
 	"aria-current",
 	"disabled",
 	"title",
 	"onClick"
 ];
-var _hoisted_20 = { class: "nav-title" };
-var _hoisted_21 = { class: "nav-label" };
-var _hoisted_22 = ["aria-label"];
-var _hoisted_23 = ["aria-current", "onClick"];
-var _hoisted_24 = { class: "nav-title" };
-var _hoisted_25 = ["aria-label"];
-var _hoisted_26 = {
+var _hoisted_21 = { class: "nav-title" };
+var _hoisted_22 = { class: "nav-label" };
+var _hoisted_23 = ["aria-label"];
+var _hoisted_24 = ["aria-current", "onClick"];
+var _hoisted_25 = { class: "nav-title" };
+var _hoisted_26 = ["aria-label"];
+var _hoisted_27 = {
 	class: "feed-toolbar",
 	"aria-label": "Current view actions"
 };
-var _hoisted_27 = ["disabled"];
-var _hoisted_28 = {
+var _hoisted_28 = ["disabled"];
+var _hoisted_29 = {
 	key: 1,
 	class: "empty"
 };
@@ -10358,17 +10363,18 @@ var App_default = /* @__PURE__ */ defineComponent({
 					}, "?")
 				])]),
 				fatal.value ? (openBlock(), createElementBlock("p", _hoisted_12, toDisplayString(fatal.value), 1)) : createCommentVNode("", true),
-				settingsError.value ? (openBlock(), createElementBlock("p", _hoisted_13, toDisplayString(settingsError.value), 1)) : createCommentVNode("", true),
-				createBaseVNode("div", _hoisted_14, [createBaseVNode("nav", _hoisted_15, [
+				unref(store).state.connection.state === "fatal" ? (openBlock(), createElementBlock("p", _hoisted_13, toDisplayString(connectionMessage.value), 1)) : createCommentVNode("", true),
+				settingsError.value ? (openBlock(), createElementBlock("p", _hoisted_14, toDisplayString(settingsError.value), 1)) : createCommentVNode("", true),
+				createBaseVNode("div", _hoisted_15, [createBaseVNode("nav", _hoisted_16, [
 					createBaseVNode("button", {
 						"aria-current": unref(store).state.selection === "all",
 						onClick: _cache[0] || (_cache[0] = ($event) => select("all"))
-					}, [createBaseVNode("span", _hoisted_17, [_cache[3] || (_cache[3] = createBaseVNode("strong", null, "All Domains", -1)), unref(allSummary).unread_count ? (openBlock(), createElementBlock("span", {
+					}, [createBaseVNode("span", _hoisted_18, [_cache[3] || (_cache[3] = createBaseVNode("strong", null, "All Domains", -1)), unref(allSummary).unread_count ? (openBlock(), createElementBlock("span", {
 						key: 0,
 						class: "unread-marker",
 						role: "img",
 						"aria-label": unreadLabel(unref(allSummary).unread_count)
-					}, "● Unread", 8, _hoisted_18)) : createCommentVNode("", true)]), createBaseVNode("span", null, toDisplayString(unref(allSummary).notification_count) + " notifications · " + toDisplayString(unref(allSummary).unread_count) + " unread · " + toDisplayString(unref(allSummary).pending_response_count) + " pending", 1)], 8, _hoisted_16),
+					}, "● Unread", 8, _hoisted_19)) : createCommentVNode("", true)]), createBaseVNode("span", null, toDisplayString(unref(allSummary).notification_count) + " notifications · " + toDisplayString(unref(allSummary).unread_count) + " unread · " + toDisplayString(unref(allSummary).pending_response_count) + " pending", 1)], 8, _hoisted_17),
 					(openBlock(true), createElementBlock(Fragment, null, renderList(unref(customViews), (view) => {
 						return openBlock(), createElementBlock("button", {
 							key: `view:${view.id}`,
@@ -10376,7 +10382,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 							disabled: !view.has_valid_rules,
 							title: view.has_valid_rules ? void 0 : "This view has no valid rules",
 							onClick: ($event) => select(`view:${view.id}`)
-						}, [createBaseVNode("span", _hoisted_20, [createBaseVNode("span", _hoisted_21, [_cache[4] || (_cache[4] = createBaseVNode("svg", {
+						}, [createBaseVNode("span", _hoisted_21, [createBaseVNode("span", _hoisted_22, [_cache[4] || (_cache[4] = createBaseVNode("svg", {
 							class: "view-icon",
 							viewBox: "0 0 16 16",
 							"aria-hidden": "true"
@@ -10385,7 +10391,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 							class: "unread-marker",
 							role: "img",
 							"aria-label": unreadLabel(view.unread_count)
-						}, "● Unread", 8, _hoisted_22)) : createCommentVNode("", true)]), createBaseVNode("span", null, toDisplayString(view.notification_count) + " notifications · " + toDisplayString(view.unread_count) + " unread · " + toDisplayString(view.pending_response_count) + " pending", 1)], 8, _hoisted_19);
+						}, "● Unread", 8, _hoisted_23)) : createCommentVNode("", true)]), createBaseVNode("span", null, toDisplayString(view.notification_count) + " notifications · " + toDisplayString(view.unread_count) + " unread · " + toDisplayString(view.pending_response_count) + " pending", 1)], 8, _hoisted_20);
 					}), 128)),
 					(openBlock(true), createElementBlock(Fragment, null, renderList(unref(domains), (domain) => {
 						return openBlock(), createElementBlock("button", {
@@ -10393,33 +10399,33 @@ var App_default = /* @__PURE__ */ defineComponent({
 							"aria-current": unref(store).state.selection === `domain:${domain.name}`,
 							onClick: ($event) => select(`domain:${domain.name}`)
 						}, [
-							createBaseVNode("span", _hoisted_24, [createBaseVNode("strong", null, toDisplayString(domain.name), 1), domain.unread_count ? (openBlock(), createElementBlock("span", {
+							createBaseVNode("span", _hoisted_25, [createBaseVNode("strong", null, toDisplayString(domain.name), 1), domain.unread_count ? (openBlock(), createElementBlock("span", {
 								key: 0,
 								class: "unread-marker",
 								role: "img",
 								"aria-label": unreadLabel(domain.unread_count)
-							}, "● Unread", 8, _hoisted_25)) : createCommentVNode("", true)]),
+							}, "● Unread", 8, _hoisted_26)) : createCommentVNode("", true)]),
 							createBaseVNode("span", null, toDisplayString(domain.unread_count) + " unread · " + toDisplayString(domain.pending_response_count) + " pending", 1),
 							createBaseVNode("small", null, toDisplayString(domain.latest_summary), 1)
-						], 8, _hoisted_23);
+						], 8, _hoisted_24);
 					}), 128))
 				]), createBaseVNode("main", {
 					ref_key: "main",
 					ref: main,
 					"aria-label": "Notifications"
 				}, [
-					createBaseVNode("div", _hoisted_26, [createBaseVNode("span", null, toDisplayString(unref(notifications).length) + " notifications", 1), createBaseVNode("button", {
+					createBaseVNode("div", _hoisted_27, [createBaseVNode("span", null, toDisplayString(unref(notifications).length) + " notifications", 1), createBaseVNode("button", {
 						type: "button",
 						disabled: !connected.value || unreadIds.value.length === 0,
 						onClick: markAllRead
-					}, "Mark all read", 8, _hoisted_27)]),
+					}, "Mark all read", 8, _hoisted_28)]),
 					showNew.value ? (openBlock(), createElementBlock("button", {
 						key: 0,
 						class: "new-notifications",
 						type: "button",
 						onClick: returnToNewest
 					}, "New notifications · return to top")) : createCommentVNode("", true),
-					unref(notifications).length === 0 ? (openBlock(), createElementBlock("p", _hoisted_28, "No notifications")) : createCommentVNode("", true),
+					unref(notifications).length === 0 ? (openBlock(), createElementBlock("p", _hoisted_29, "No notifications")) : createCommentVNode("", true),
 					(openBlock(true), createElementBlock(Fragment, null, renderList(renderedNotifications.value, (notification) => {
 						return openBlock(), createBlock(NotificationCard_default, {
 							key: notification.id,
@@ -10456,14 +10462,14 @@ var App_default = /* @__PURE__ */ defineComponent({
 					}, " Show older notifications (" + toDisplayString(unref(notifications).length - renderedNotifications.value.length) + " remaining) ", 1)) : createCommentVNode("", true)
 				], 512)]),
 				settingsOpen.value && settings.value ? (openBlock(), createBlock(SettingsDialog_default, {
-					key: 2,
+					key: 3,
 					settings: settings.value,
 					bridge: unref(desktopBridge),
 					onClose: closeSettings,
 					onSaved: settingsSaved
 				}, null, 8, ["settings", "bridge"])) : createCommentVNode("", true),
 				helpOpen.value ? (openBlock(), createBlock(KeyboardHelpDialog_default, {
-					key: 3,
+					key: 4,
 					onClose: closeHelp
 				})) : createCommentVNode("", true)
 			]);

@@ -12,7 +12,7 @@ from pathlib import Path
 from notification_hub.config import (
     ClientSettings,
     ConfigurationError,
-    load_client_config,
+    load_desktop_config,
     parse_client_settings,
 )
 
@@ -78,7 +78,7 @@ class ClientSettingsStore:
     def __init__(self, path: Path, settings: ClientSettings | None = None) -> None:
         self.path = path.expanduser()
         self._lock = threading.RLock()
-        self._settings = settings or load_client_config(self.path).settings
+        self._settings = settings if settings is not None else load_desktop_config(self.path)[1]
 
     def get(self) -> ClientSettings:
         with self._lock:
@@ -88,8 +88,10 @@ class ClientSettingsStore:
         settings = parse_client_settings(value)
         with self._lock:
             try:
-                source = self.path.read_text(encoding="utf-8")
-                existing_mode = stat.S_IMODE(self.path.stat().st_mode)
+                source = self.path.read_text(encoding="utf-8") if self.path.exists() else ""
+                existing_mode = (
+                    stat.S_IMODE(self.path.stat().st_mode) if self.path.exists() else None
+                )
                 candidate = _without_settings(source) + _serialize(settings)
                 self._write_candidate(candidate, existing_mode)
             except ConfigurationError:
@@ -114,7 +116,7 @@ class ClientSettingsStore:
                 os.fsync(stream.fileno())
             # Validate the whole file, including preserved server/auth values,
             # before it can replace the active configuration.
-            load_client_config(temporary)
+            load_desktop_config(temporary)
             os.replace(temporary, self.path)
         finally:
             if descriptor >= 0:

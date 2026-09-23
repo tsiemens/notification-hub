@@ -13,7 +13,7 @@ from notification_hub.client import HubClient
 from notification_hub.config import (
     ConfigurationError,
     default_client_config_path,
-    load_client_config,
+    load_desktop_config,
 )
 
 from .bridge import GuiBridge
@@ -67,8 +67,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         config_path = (args.config or default_client_config_path()).expanduser()
-        config = load_client_config(config_path)
-        client = HubClient(config)
+        if args.config is not None and not config_path.exists():
+            raise ConfigurationError(f"configuration file does not exist: {config_path}")
+        config, settings = load_desktop_config(config_path)
+        client = HubClient(config) if config is not None else None
         try:
             import webview
         except ImportError as exc:
@@ -79,7 +81,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
     controller = GuiController(client)
-    bridge = GuiBridge(controller, settings_store=ClientSettingsStore(config_path, config.settings))
+    bridge = GuiBridge(controller, settings_store=ClientSettingsStore(config_path, settings))
     resource = files("notification_hub.gui").joinpath("web")
     try:
         with ExitStack() as stack:

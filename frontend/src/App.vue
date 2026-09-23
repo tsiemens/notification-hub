@@ -341,6 +341,7 @@ onBeforeUnmount(() => {
       </div>
     </header>
     <p v-if="fatal" class="fatal" role="alert">{{ fatal }}</p>
+    <p v-if="store.state.connection.state === 'fatal'" class="fatal" role="alert">{{ connectionMessage }}</p>
     <p v-if="settingsError" class="fatal" role="alert">{{ settingsError }}</p>
     <div class="workspace">
       <nav aria-label="Notification views and domains">

@@ -124,3 +124,12 @@ def test_new_atomic_file_uses_owner_only_permissions(tmp_path: Path) -> None:
     store._write_candidate(candidate, None)  # noqa: SLF001 - exercise creation permissions
 
     assert stat.S_IMODE(target.stat().st_mode) == 0o600
+
+
+def test_settings_can_be_saved_before_server_is_configured(tmp_path: Path) -> None:
+    path = tmp_path / "client.toml"
+    store = ClientSettingsStore(path)
+    saved = store.update(_settings())
+    assert saved == store.get()
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert ClientSettingsStore(path).get() == saved

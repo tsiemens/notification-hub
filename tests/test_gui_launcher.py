@@ -4,10 +4,12 @@ import subprocess
 import sys
 from importlib.resources import as_file, files
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from notification_hub.gui.launcher import _gtk_failure
+from notification_hub.gui.launcher import main as gui_main
 
 
 def test_gui_package_import_does_not_import_pywebview() -> None:
@@ -52,3 +54,37 @@ def test_gtk_initialization_error_is_actionable() -> None:
     message = _gtk_failure(RuntimeError("cannot load WebKit"))
     assert "Install the GTK 3 and WebKitGTK runtime libraries" in message
     assert "cannot load WebKit" in message
+
+
+def test_desktop_opens_without_default_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    observed = []
+
+    class Event:
+        def __iadd__(self, callback):
+            return self
+
+    def create_window(_title, _url, *, js_api, **_kwargs):
+        observed.append(js_api)
+        return SimpleNamespace(events=SimpleNamespace(closed=Event()))
+
+    def start(**_kwargs):
+        state = observed[0].get_initial_state()
+        assert state["connection"]["state"] == "fatal"
+        assert "No server is configured" in state["connection"]["message"]
+        assert observed[0].get_settings()["settings"]["theme"] == "system"
+
+    monkeypatch.setitem(
+        sys.modules, "webview", SimpleNamespace(create_window=create_window, start=start)
+    )
+    assert gui_main([]) == 0
+    assert not (tmp_path / "notification-hub/client.config.toml").exists()
+
+
+def test_explicit_missing_desktop_config_is_an_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert gui_main(["--config", str(tmp_path / "missing.toml")]) == 1
+    assert "configuration file does not exist" in capsys.readouterr().err

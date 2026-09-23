@@ -492,3 +492,15 @@ def load_client_config(path: Path | None = None) -> ClientConfig:
         views=settings.views,
         sound_path=settings.sound_path,
     )
+
+
+def load_desktop_config(path: Path) -> tuple[ClientConfig | None, ClientSettings]:
+    """Allow the desktop to open before a server and signing key are configured."""
+    path = path.expanduser()
+    if not path.exists():
+        return None, ClientSettings()
+    data = _load_toml(path)
+    if set(data) <= {"ui", "views"}:
+        return None, _client_settings(data)
+    config = load_client_config(path)
+    return config, config.settings

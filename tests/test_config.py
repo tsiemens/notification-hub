@@ -8,8 +8,10 @@ from notification_hub.config import (
     MAX_CUSTOM_VIEWS,
     MAX_VIEW_REGEX_LENGTH,
     MAX_VIEW_RULES,
+    ClientSettings,
     ConfigurationError,
     load_client_config,
+    load_desktop_config,
     load_notifier_config,
     load_server_config,
 )
@@ -120,6 +122,22 @@ private_key_file = "/secret/client.pem"
 
 {settings}
 """
+
+
+def test_desktop_uses_defaults_without_a_client_file(tmp_path: Path) -> None:
+    config, settings = load_desktop_config(tmp_path / "missing.toml")
+    assert config is None
+    assert settings == ClientSettings()
+
+
+def test_desktop_loads_presentation_only_file(tmp_path: Path) -> None:
+    path = tmp_path / "client.toml"
+    path.write_text('[ui]\ntheme = "dark"\n', encoding="utf-8")
+    config, settings = load_desktop_config(path)
+    assert config is None
+    assert settings.theme == "dark"
+    with pytest.raises(ConfigurationError):
+        load_client_config(path)
 
 
 @pytest.mark.parametrize(

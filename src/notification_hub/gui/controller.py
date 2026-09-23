@@ -28,7 +28,7 @@ class GuiController:
 
     def __init__(
         self,
-        client: HubClient,
+        client: HubClient | None,
         *,
         update_log_size: int = 256,
         update_wait_seconds: float = 1.0,
@@ -44,7 +44,15 @@ class GuiController:
         self.client = client
         self._state = SyncState()
         self._has_snapshot = False
-        self._connection = ConnectionStatus("starting")
+        self._connection = (
+            ConnectionStatus("starting")
+            if client is not None
+            else ConnectionStatus(
+                "fatal",
+                "No server is configured. Add [server] and [auth] to the client config, "
+                "then restart.",
+            )
+        )
         self._condition = threading.Condition(threading.RLock())
         self._revision = 0
         self._updates: deque[tuple[int, dict[str, Any]]] = deque(maxlen=update_log_size)
@@ -55,6 +63,8 @@ class GuiController:
         self._worker: threading.Thread | None = None
 
     def start(self) -> None:
+        if self.client is None:
+            return
         with self._condition:
             if self._worker is not None and self._worker.is_alive():
                 return
@@ -123,10 +133,12 @@ class GuiController:
 
     def set_read_state(self, notification_ids: list[str], read: bool) -> MutationResult:
         self._require_connected()
+        assert self.client is not None
         return self.client.set_read_state(notification_ids, read)
 
     def respond(self, notification_id: str, option_id: str, message: str | None) -> MutationResult:
         self._require_connected()
+        assert self.client is not None
         return self.client.respond(notification_id, option_id, message)
 
     def _require_connected(self) -> None:
@@ -173,6 +185,7 @@ class GuiController:
             return applied
 
     def _run(self) -> None:
+        assert self.client is not None
         needs_snapshot = True
         delay = 0.5
         while not self._stop_event.is_set():

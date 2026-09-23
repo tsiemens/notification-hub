@@ -22,21 +22,51 @@ uv tool install notification-hub
 ```
 
 This installs `nh-server`, `nh-notifier`, `nh-client-cli`, `nh-client`, and
-`nh-desktop-installer`. Keep the checkout in place only when using
-`uv tool install --editable .` for development.
+`nh-desktop-installer`. An editable install for development requires keeping
+the checkout in place.
 
-The desktop client is Linux-only. Install its optional GTK integration with:
+The desktop client only supports Linux right now. On Ubuntu 24.04 or 26.04, install its native
+runtime libraries with:
+
+```sh
+sudo apt install --yes \
+  libgtk-3-0t64 libwebkit2gtk-4.1-0 gir1.2-webkit2-4.1
+```
+
+The `gui` extra also installs PyGObject and pycairo into uv's isolated tool
+environment. They are built from source on Linux, so install their build
+prerequisites before running `uv tool install`:
+
+```sh
+sudo apt install --yes \
+  libcairo2-dev libgirepository-2.0-dev pkg-config gcc python3-dev
+```
+
+Then install the optional GTK integration:
 
 ```sh
 uv tool install 'notification-hub[gui]'
 ```
 
-Python 3.12 or newer, GTK 3, and WebKitGTK 4.1 are supported. The native GTK
-and WebKitGTK libraries come from the operating system, not PyPI. For example,
-install `gir1.2-webkit2-4.1`, `libwebkit2gtk-4.1-0`, `libcairo2-dev`,
-`libgirepository-2.0-dev`, `pkg-config`, and the development package matching
-your Python on current Debian/Ubuntu, or the equivalent WebKitGTK 4.1, GTK 3,
-and PyGObject prerequisites on your distribution. If the backend is
+For an editable install, run this from the repository root instead:
+
+```sh
+uv tool install --force --editable '.[gui]'
+```
+
+`--force` replaces an existing base or editable tool install so that
+`nh-client` runs with the `gui` extra.
+
+The project requires Python 3.12 or newer and uses GTK 3 with the WebKitGTK 4.1
+API. The `3`, `4.1`, and `2.0` in these Ubuntu package names identify library
+interfaces; they do not pin the exact package release. Use development headers
+for the Python version used by `uv` (for example, `python3.12-dev` in place of
+`python3-dev` if using Python 3.12 on a system whose default `python3` is
+newer). The compiler and development packages are needed to build the Python
+bindings during installation, but not to run the installed client. The Ubuntu
+24.04 package set above is used by the GTK smoke test in CI; the same package
+names are available on Ubuntu 26.04. On other Linux distributions, install the
+equivalent GTK 3, WebKitGTK 4.1, and PyGObject prerequisites. If the backend is
 unavailable, `nh-client` exits with an actionable diagnostic.
 
 The wheel includes freedesktop metadata, but uv does not install shared desktop
@@ -62,6 +92,9 @@ the uv tool. If uv's tool executable directory is not on your `PATH`, run
 writes the absolute `nh-client` path into the desktop entry, so the desktop
 session does not need uv's executable directory on its `PATH`. Re-run the
 command if you move that directory.
+
+See [Configuration](docs/configuration.md) for setup examples and all TOML
+settings for the server, notifier, and client.
 
 For development, also create the repository-local environment with the test
 and lint dependencies:
