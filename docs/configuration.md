@@ -47,9 +47,11 @@ scopes = ["read", "respond", "read_state"]
 
 ```
 
-The server listens on loopback by default. Set `host` to an appropriate
-interface when clients connect remotely, and provide TLS through a trusted
-reverse proxy. The database defaults to
+The server listens on loopback by default. Keep remote access on a trusted
+network or use an encrypted tunnel. A conventional TLS-terminating reverse
+proxy currently breaks signed client requests because the built-in server does
+not use the forwarded public URL when verifying signatures; see
+[Security and caveats](security.md). The database defaults to
 `$XDG_DATA_HOME/notification-hub/server.sqlite3` (or
 `~/.local/share/notification-hub/server.sqlite3`).
 `strict_database_permissions` checks that database access is restricted.

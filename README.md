@@ -12,6 +12,20 @@ Notifications are given a customizable attributes so you can easily see where
 they came from (for example, from which remote server or container), from which
 tool, and include tags. They also support markdown messages and details.
 
+## Security and Caveats
+
+- Approval gates can separate an agent from the person approving only if the
+  agent cannot access the client's private key, use the trusted client to sign,
+  or bypass the gate. Running both under the same OS account is not sufficient.
+- Producer requests are unauthenticated. Anyone who can reach the server can
+  forge a notification; someone with its ID can read the outcome or cancel it.
+  Restrict server access and do not trust the displayed sender as proof of origin.
+- Keep the server on a trusted network and use an encrypted tunnel for remote
+  connections. Protect private keys and the server database from untrusted users.
+
+Read [Security and caveats](docs/security.md) before using approvals to protect
+consequential actions.
+
 ## Installation
 
 For the server, notifier, and headless inspection client, install the base
