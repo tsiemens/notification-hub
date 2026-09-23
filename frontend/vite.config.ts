@@ -12,6 +12,14 @@ export default defineConfig({
   build: {
     outDir: "../src/notification_hub/gui/web",
     emptyOutDir: true,
+    minify: false,
+    rolldownOptions: {
+      output: {
+        entryFileNames: "assets/[name].js",
+        chunkFileNames: "assets/[name].js",
+        assetFileNames: "assets/[name][extname]",
+      },
+    },
   },
   test: {
     environment: "jsdom",

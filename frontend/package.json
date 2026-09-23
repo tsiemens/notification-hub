@@ -8,7 +8,7 @@
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
     "build": "vue-tsc --noEmit && vite build",
-    "verify": "npm run typecheck && npm run test && npm run build"
+    "check": "npm run typecheck && npm run test"
   },
   "dependencies": {
     "dompurify": "^3.4.15",

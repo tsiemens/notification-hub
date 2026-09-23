@@ -8,9 +8,9 @@ npm run build
 cd "$repo_root"
 
 if [ ! -f src/notification_hub/gui/web/index.html ] \
-    || ! find src/notification_hub/gui/web/assets -type f -name 'index-*.js' -print -quit | grep -q . \
-    || ! find src/notification_hub/gui/web/assets -type f -name 'index-*.css' -print -quit | grep -q .; then
-    echo "release assets are incomplete: the packaged HTML and hashed JS/CSS are required" >&2
+    || [ ! -f src/notification_hub/gui/web/assets/index.js ] \
+    || [ ! -f src/notification_hub/gui/web/assets/index.css ]; then
+    echo "release assets are incomplete: the packaged HTML, JS, and CSS are required" >&2
     exit 1
 fi
 

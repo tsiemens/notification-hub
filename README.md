@@ -1,8 +1,16 @@
 # Notification Hub
 
 Notification Hub is a small, single-user service for collecting notifications
-and resolving approval requests from remote tools. The implementation is being
-delivered in the phases described in `local_md/design.md`.
+and resolving approval requests from remote tools.
+
+At a high-level, a small server is run somewhere, and notifications or approval
+requests can be sent to it from the provided notifier executable. A "hub" GUI
+can be run from your local machine, which monitors, displays and allows you to
+reply (if necessary) to these notifications.
+
+Notifications are given a customizable attributes so you can easily see where
+they came from (for example, from which remote server or container), from which
+tool, and include tags. They also support markdown messages and details.
 
 ## Installation
 
@@ -61,22 +69,6 @@ and lint dependencies:
 ```sh
 uv sync
 ```
-
-## Development progress
-
-Phases 1 through 4 are implemented: domain models and validation, TOML
-configuration, SQLite migrations and repository operations, retention, the
-complete Flask API, RFC 9421 public-key request authentication, RFC 9530 content
-digests, scope enforcement, transactional single-use mutation nonces, and the
-producer-side `nh-notifier` CLI. Phase 4 adds the reusable signed Python client,
-paginated snapshot and durable event synchronization, and the headless
-`nh-client-cli` inspection and mutation tool.
-Phase 5 is complete. The GTK launcher, revisioned Python bridge/controller,
-windowed Vue feed, notification and mutation controls, hardened Markdown
-renderer, reconnect/reset handling, and native-window-independent real-server
-integration coverage are available.
-Producer create, outcome, and cancellation routes remain intentionally
-unauthenticated as specified in the design.
 
 ## Running the server
 
@@ -172,10 +164,15 @@ npm ci
 npm run dev
 ```
 
-The Vite development server uses an in-browser fake bridge. A production build
-writes relative assets to `src/notification_hub/gui/web`, where the Python
-launcher loads them through package resources. Run `npm run verify` to type
-check, test, and rebuild those assets.
+`npm run dev` starts Vite's local development server. Open the URL it prints in
+a browser; edits to the frontend appear there as you work. This browser preview
+uses fake notifications and a fake Python bridge, so it does not connect to the
+desktop client or server.
+
+From `frontend`, run `npm run check` to type check and test. Run `npm run build` when you want to update the packaged frontend.
+The build writes readable JS and CSS with stable filenames
+to `src/notification_hub/gui/web`, where the Python launcher loads them through
+package resources. Commit those generated files along with your frontend changes.
 
 For a release, `./scripts/check-release-assets.sh` performs a clean frontend
 production build and fails when the committed packaged output is missing or
@@ -198,5 +195,5 @@ Run the tests with:
 uv run ruff check .
 uv run ruff format --check .
 uv run pytest
-cd frontend && npm run verify
+cd frontend && npm run check
 ```

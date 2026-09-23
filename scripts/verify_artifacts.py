@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import sys
 import tarfile
 import zipfile
@@ -22,18 +21,14 @@ def main() -> None:
         names = set(archive.namelist())
         required = {
             "notification_hub/gui/web/index.html",
+            "notification_hub/gui/web/assets/index.js",
+            "notification_hub/gui/web/assets/index.css",
             "notification_hub/gui/resources/notification-hub.desktop.template",
             "notification_hub/gui/resources/notification-hub.svg",
         }
         missing = required - names
         if missing:
             fail(f"wheel is missing {', '.join(sorted(missing))}")
-        javascript_pattern = r"notification_hub/gui/web/assets/index-[^/]+\.js"
-        stylesheet_pattern = r"notification_hub/gui/web/assets/index-[^/]+\.css"
-        if not any(re.fullmatch(javascript_pattern, name) for name in names):
-            fail("wheel has no hashed frontend JavaScript")
-        if not any(re.fullmatch(stylesheet_pattern, name) for name in names):
-            fail("wheel has no hashed frontend CSS")
         javascript = b"".join(archive.read(name) for name in names if name.endswith(".js"))
         if b"createOscillator" not in javascript:
             fail("wheel does not contain the generated bundled notification tone")
@@ -53,6 +48,8 @@ def main() -> None:
         names = archive.getnames()
         for suffix in (
             "/src/notification_hub/gui/web/index.html",
+            "/src/notification_hub/gui/web/assets/index.js",
+            "/src/notification_hub/gui/web/assets/index.css",
             "/src/notification_hub/gui/resources/notification-hub.desktop.template",
             "/src/notification_hub/gui/resources/notification-hub.svg",
         ):
