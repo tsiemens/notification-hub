@@ -315,11 +315,11 @@ class NotificationRepository:
                 raise
 
     def get(self, notification_id: str) -> Notification:
-        with self.database.connection() as connection:
+        with self.database.read_connection() as connection:
             return self._get(connection, notification_id)
 
     def list_notifications(self) -> list[Notification]:
-        with self.database.connection() as connection:
+        with self.database.read_connection() as connection:
             ids = connection.execute(
                 "SELECT id FROM notifications ORDER BY created_at, id"
             ).fetchall()
@@ -371,7 +371,7 @@ class NotificationRepository:
         sql += f" ORDER BY n.created_at {direction}, n.id {direction} LIMIT ?"
         parameters.append(query.limit + 1)
 
-        with self.database.connection() as connection:
+        with self.database.read_connection() as connection:
             rows = connection.execute(sql, parameters).fetchall()
             page_rows = rows[: query.limit]
             items = [self._get(connection, row["id"]) for row in page_rows]
@@ -390,27 +390,21 @@ class NotificationRepository:
     def snapshot(self, *, now: datetime | None = None) -> Snapshot:
         """Read the sequence and all UI state from one SQLite snapshot."""
         generated_at = format_timestamp(now or datetime.now(UTC))
-        with self.database.connection() as connection:
-            connection.execute("BEGIN")
-            try:
-                sequence = self._last_allocated_sequence(connection)
-                domains = self._domains(connection)
-                ids = connection.execute(
-                    "SELECT id FROM notifications ORDER BY created_at DESC, id DESC"
-                ).fetchall()
-                notifications = [self._get(connection, row["id"]) for row in ids]
-                connection.commit()
-                return Snapshot(sequence, generated_at, domains, notifications)
-            except Exception:
-                connection.rollback()
-                raise
+        with self.database.read_connection() as connection:
+            sequence = self._last_allocated_sequence(connection)
+            domains = self._domains(connection)
+            ids = connection.execute(
+                "SELECT id FROM notifications ORDER BY created_at DESC, id DESC"
+            ).fetchall()
+            notifications = [self._get(connection, row["id"]) for row in ids]
+            return Snapshot(sequence, generated_at, domains, notifications)
 
     def event_page(self, after: int, limit: int) -> EventPage:
         if after < 0:
             raise ValidationError("after must be a non-negative integer")
         if not 1 <= limit <= 500:
             raise ValidationError("limit must be an integer from 1 through 500")
-        with self.database.connection() as connection:
+        with self.database.read_connection() as connection:
             last_allocated = self._last_allocated_sequence(connection)
             oldest = connection.execute("SELECT min(seq) FROM events").fetchone()[0]
             if (oldest is not None and after < oldest - 1) or (

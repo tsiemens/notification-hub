@@ -129,6 +129,80 @@ def test_response_is_terminal_and_message_mode_is_enforced(
         repository.respond(notification_id, str(uuid.uuid4()), "approve", None, "desktop", now=NOW)
 
 
+@pytest.mark.parametrize("read_method", ["get", "list_notifications", "query_notifications"])
+def test_record_reads_keep_one_snapshot_during_answer(
+    repository: NotificationRepository, monkeypatch: pytest.MonkeyPatch, read_method: str
+) -> None:
+    notification_id = repository.create(request(options=True), now=NOW).notification.id
+    original_connect = repository.database.connect
+    triggered = False
+    callback_errors: list[Exception] = []
+
+    def connect_with_interleaved_answer():
+        nonlocal triggered
+        connection = original_connect()
+        if not triggered:
+
+            def on_query(sql: str) -> None:
+                nonlocal triggered
+                if not triggered and sql.startswith("SELECT * FROM responses"):
+                    triggered = True
+                    try:
+                        repository.respond(
+                            notification_id, str(uuid.uuid4()), "approve", None, "desktop", now=NOW
+                        )
+                    except Exception as exc:
+                        callback_errors.append(exc)
+
+            connection.set_trace_callback(on_query)
+        return connection
+
+    monkeypatch.setattr(repository.database, "connect", connect_with_interleaved_answer)
+    if read_method == "get":
+        notification = repository.get(notification_id)
+    elif read_method == "list_notifications":
+        notification = repository.list_notifications()[0]
+    else:
+        notification = repository.query_notifications(NotificationQuery()).items[0]
+
+    assert triggered and not callback_errors
+    assert notification.response_state is ResponseState.PENDING
+    assert notification.response is None
+    assert repository.get(notification_id).response_state is ResponseState.ANSWERED
+
+
+def test_event_page_keeps_metadata_and_rows_on_one_snapshot(
+    repository: NotificationRepository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = repository.create(request(), now=NOW)
+    original_connect = repository.database.connect
+    triggered = False
+    callback_errors: list[Exception] = []
+
+    def connect_with_interleaved_event():
+        nonlocal triggered
+        connection = original_connect()
+        if not triggered:
+
+            def on_query(sql: str) -> None:
+                nonlocal triggered
+                if not triggered and sql.startswith("SELECT seq, event_type, occurred_at"):
+                    triggered = True
+                    try:
+                        repository.create(request(), now=NOW + timedelta(seconds=1))
+                    except Exception as exc:
+                        callback_errors.append(exc)
+
+            connection.set_trace_callback(on_query)
+        return connection
+
+    monkeypatch.setattr(repository.database, "connect", connect_with_interleaved_event)
+    page = repository.event_page(0, 10)
+    assert triggered and not callback_errors
+    assert [event["seq"] for event in page.events] == [first.event_seq]
+    assert repository.event_page(page.last_sequence, 10).events[0]["seq"] == first.event_seq + 1
+
+
 def test_cancel_is_idempotent_without_producer_ownership(
     repository: NotificationRepository,
 ) -> None:

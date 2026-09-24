@@ -108,6 +108,7 @@ def signed_request(
     created: int | None = None,
     components: list[str] | None = None,
     signature_params_suffix: str = "",
+    environ_overrides: dict[str, str] | None = None,
 ):
     if query_string:
         path = f"{path}?{urlencode(query_string, doseq=True)}"
@@ -159,7 +160,13 @@ def signed_request(
     signature = base64.b64encode(signature_bytes).decode()
     headers["Signature-Input"] = f"sig1={params}"
     headers["Signature"] = f"sig1=:{signature}:"
-    return client.open(path, method=method.upper(), data=data, headers=headers)
+    return client.open(
+        path,
+        method=method.upper(),
+        data=data,
+        headers=headers,
+        environ_overrides=environ_overrides,
+    )
 
 
 def issue_nonce(
@@ -754,6 +761,41 @@ def test_read_notification_list_filters_and_paginates(client) -> None:
         query_string={"order": "desc", "limit": 1, "cursor": page_one["next_cursor"]},
     )
     assert cursor_mismatch.status_code == 422
+
+
+@pytest.mark.parametrize("tag", ["café", "a/b", "a:b", "a b"])
+def test_signed_encoded_query_filter_preserves_request_target(client, tag: str) -> None:
+    payload = notification(options=False)
+    payload["tags"] = [tag]
+    assert client.post("/api/v1/notifications", json=payload).status_code == 201
+
+    response = signed_request(client, "GET", "/api/v1/notifications", query_string={"tag": tag})
+    assert response.status_code == 200
+    assert [item["id"] for item in response.get_json()["items"]] == [payload["id"]]
+
+
+def test_signed_request_target_includes_mount_prefix(client) -> None:
+    response = signed_request(
+        client,
+        "GET",
+        "/hub/api/v1/notifications",
+        query_string={"tag": "workspace:hub"},
+        environ_overrides={"SCRIPT_NAME": "/hub", "PATH_INFO": "/api/v1/notifications"},
+    )
+    assert response.status_code == 200
+
+
+def test_signature_distinguishes_encoded_and_unencoded_targets(client) -> None:
+    response = signed_request(
+        client,
+        "GET",
+        "/api/v1/notifications?tag=a%3Ab",
+        environ_overrides={
+            "RAW_URI": "/api/v1/notifications?tag=a:b",
+            "REQUEST_URI": "/api/v1/notifications?tag=a:b",
+        },
+    )
+    assert response.status_code == 401
 
 
 def test_get_domains_snapshot_and_events(client) -> None:

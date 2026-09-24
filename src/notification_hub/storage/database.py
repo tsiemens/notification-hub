@@ -99,6 +99,18 @@ class Database:
         finally:
             connection.close()
 
+    @contextmanager
+    def read_connection(self) -> Iterator[sqlite3.Connection]:
+        """Keep all SELECTs in a read operation on one SQLite snapshot."""
+        with self.connection() as connection:
+            connection.execute("BEGIN")
+            try:
+                yield connection
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
 
 def _sql_statements(script: str) -> Iterator[str]:
     """Split a trusted migration script using SQLite's own completeness parser."""

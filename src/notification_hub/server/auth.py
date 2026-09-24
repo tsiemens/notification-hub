@@ -206,7 +206,7 @@ class RequestAuthenticator:
             if component == "@method":
                 value = request.method
             elif component == "@target-uri":
-                value = request.url
+                value = RequestAuthenticator._target_uri(request)
             elif component.startswith("@"):
                 raise AuthenticationError(f"unsupported derived component: {component}")
             else:
@@ -217,6 +217,19 @@ class RequestAuthenticator:
             lines.append(f'"{component}": {value}')
         lines.append(f'"@signature-params": {params}')
         return "\n".join(lines).encode("utf-8")
+
+    @staticmethod
+    def _target_uri(request: Request) -> str:
+        # Flask's request.url decodes percent-encoded query characters. The
+        # signature must cover the request target as it arrived at the server.
+        raw_target = request.environ.get("RAW_URI") or request.environ.get("REQUEST_URI")
+        if not isinstance(raw_target, str) or not raw_target:
+            raise AuthenticationError("raw request target is unavailable")
+        if raw_target.startswith("/"):
+            return f"{request.scheme}://{request.host}{raw_target}"
+        if raw_target.startswith(("http://", "https://")):
+            return raw_target
+        raise AuthenticationError("raw request target is invalid")
 
     @staticmethod
     def _verify_signature(
