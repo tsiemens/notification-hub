@@ -620,12 +620,23 @@ class NotificationRepository:
                 ).rowcount
                 seq = None
                 if changed:
+                    versions = {
+                        row["id"]: row["version"]
+                        for row in connection.execute(
+                            f"SELECT id, version FROM notifications WHERE id IN ({placeholders})",
+                            notification_ids,
+                        )
+                    }
                     seq = self._event(
                         connection,
                         "notifications.read_state_changed",
                         None,
                         timestamp,
-                        {"notification_ids": changed_ids, "read_at": target},
+                        {
+                            "notification_ids": changed_ids,
+                            "versions": [versions[item] for item in changed_ids],
+                            "read_at": target,
+                        },
                     )
                 notifications = [self._get(connection, item) for item in notification_ids]
                 connection.commit()

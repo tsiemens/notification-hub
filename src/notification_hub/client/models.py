@@ -195,6 +195,7 @@ class HubEvent:
     occurred_at: str
     notification: Notification | None = None
     notification_ids: tuple[str, ...] = ()
+    versions: tuple[int, ...] = ()
     read_at: str | None = None
     id: str | None = None
     name: str | None = None
@@ -208,7 +209,11 @@ class HubEvent:
         if self.notification is not None:
             value["notification"] = self.notification.to_dict()
         elif self.type == "notifications.read_state_changed":
-            value.update(notification_ids=list(self.notification_ids), read_at=self.read_at)
+            value.update(
+                notification_ids=list(self.notification_ids),
+                versions=list(self.versions),
+                read_at=self.read_at,
+            )
         elif self.type == "notification.deleted":
             value["id"] = self.id
         else:
@@ -223,7 +228,7 @@ def parse_event(value: object) -> HubEvent:
     fields = {
         "notification.created": base | {"notification"},
         "notification.updated": base | {"notification"},
-        "notifications.read_state_changed": base | {"notification_ids", "read_at"},
+        "notifications.read_state_changed": base | {"notification_ids", "versions", "read_at"},
         "notification.deleted": base | {"id"},
         "domain.deleted": base | {"name"},
     }.get(event_type)
@@ -245,11 +250,18 @@ def parse_event(value: object) -> HubEvent:
         )
     if event_type == "notifications.read_state_changed":
         ids = item["notification_ids"]
+        versions = item["versions"]
         if (
             not isinstance(ids, list)
             or not ids
-            or len(set(ids)) != len(ids)
             or any(not isinstance(value, str) or not value for value in ids)
+            or len(set(ids)) != len(ids)
+            or not isinstance(versions, list)
+            or len(versions) != len(ids)
+            or any(
+                isinstance(value, bool) or not isinstance(value, int) or value < 1
+                for value in versions
+            )
         ):
             raise ProtocolError("read-state event ids are malformed")
         if item["read_at"] is not None:
@@ -262,6 +274,7 @@ def parse_event(value: object) -> HubEvent:
             event_type,
             item["occurred_at"],
             notification_ids=tuple(ids),
+            versions=tuple(versions),
             read_at=item["read_at"],
         )
     key = "id" if event_type == "notification.deleted" else "name"
@@ -350,14 +363,18 @@ class SyncState:
                     notifications[event.notification.id] = event.notification
                     activity[event.notification.domain] = event.occurred_at
             elif event.type == "notifications.read_state_changed":
-                for notification_id in event.notification_ids:
+                for notification_id, version in zip(
+                    event.notification_ids, event.versions, strict=True
+                ):
                     old = notifications.get(notification_id)
                     if old is None:
                         raise ProtocolError("read-state event refers to an unknown notification")
+                    if version != old.version + 1:
+                        raise ProtocolError("read-state event version is inconsistent")
                     value = old.to_dict()
                     value["read_at"] = event.read_at
                     value["updated_at"] = event.occurred_at
-                    value["version"] = old.version + 1
+                    value["version"] = version
                     notifications[notification_id] = parse_notification(value)
             elif event.type == "notification.deleted":
                 if event.id not in notifications:

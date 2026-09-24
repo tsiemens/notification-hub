@@ -114,7 +114,7 @@ def run(
     client: HubClient | None = None,
 ) -> int:
     del stderr
-    client = client or HubClient(config)
+    client = client or HubClient(config, nonce_batch_size=1)
     if args.command == "domains":
         items = client.list_domains()
         if args.json:

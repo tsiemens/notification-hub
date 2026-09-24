@@ -9895,12 +9895,13 @@ function createHubStore() {
 	}
 	function applyEvent(event) {
 		if (event.type === "notification.created" || event.type === "notification.updated") upsert(event.notification);
-		else if (event.type === "notifications.read_state_changed") for (const id of event.notification_ids) {
+		else if (event.type === "notifications.read_state_changed") for (const [index, id] of event.notification_ids.entries()) {
 			const current = state.notifications.get(id);
-			if (current && current.read_at !== event.read_at) state.notifications.set(id, {
+			const version = event.versions[index];
+			if (current && version !== void 0 && version > current.version) state.notifications.set(id, {
 				...current,
 				read_at: event.read_at,
-				version: current.version + 1
+				version
 			});
 		}
 		else if (event.type === "notification.deleted") state.notifications.delete(event.id);

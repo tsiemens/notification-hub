@@ -54,7 +54,7 @@ export interface Snapshot {
 
 export type HubEvent =
   | { seq: number; type: "notification.created" | "notification.updated"; notification: Notification }
-  | { seq: number; type: "notifications.read_state_changed"; notification_ids: string[]; read_at: string | null }
+  | { seq: number; type: "notifications.read_state_changed"; notification_ids: string[]; versions: number[]; read_at: string | null }
   | { seq: number; type: "notification.deleted"; id: string }
   | { seq: number; type: "domain.deleted"; name: string };
 

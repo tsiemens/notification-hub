@@ -223,6 +223,7 @@ describe("hub store", () => {
         seq: 4,
         type: "notifications.read_state_changed",
         notification_ids: ["a"],
+        versions: [3],
         read_at: "2026-01-02T00:00:00.000Z",
       }] }],
     });
@@ -253,6 +254,7 @@ describe("hub store", () => {
         seq: 4,
         type: "notifications.read_state_changed",
         notification_ids: ["a"],
+        versions: [2],
         read_at: "2026-01-02T00:00:00.000Z",
       }] }],
     });
@@ -267,8 +269,8 @@ describe("hub store", () => {
     store.applyBatch({
       revision: 2,
       updates: [{ kind: "events", domains: [], events: [
-        { seq: 4, type: "notifications.read_state_changed", notification_ids: ["a"], read_at: "2026-01-02T00:00:00.000Z" },
-        { seq: 5, type: "notifications.read_state_changed", notification_ids: ["a"], read_at: null },
+        { seq: 4, type: "notifications.read_state_changed", notification_ids: ["a"], versions: [2], read_at: "2026-01-02T00:00:00.000Z" },
+        { seq: 5, type: "notifications.read_state_changed", notification_ids: ["a"], versions: [3], read_at: null },
       ] }],
     });
     store.finishMutation(["a"], {
@@ -278,6 +280,24 @@ describe("hub store", () => {
 
     expect(store.notifications.value[0].read_at).toBeNull();
     expect(store.notifications.value[0].version).toBe(3);
+  });
+
+  it("keeps a canonical mutation result ahead of multiple queued read events", () => {
+    const store = createHubStore();
+    const original = notification("a", "2026-01-01T00:00:00.000Z", 1, { response_state: "pending" });
+    store.hydrate(initial([original]));
+    store.finishMutation(["a"], {
+      ok: true,
+      notifications: [{ ...original, version: 3, read_at: null }],
+      event_seq: 5,
+    });
+    store.applyBatch({ revision: 2, updates: [{ kind: "events", domains: [], events: [
+      { seq: 4, type: "notifications.read_state_changed", notification_ids: ["a"], versions: [2], read_at: "2026-01-02T00:00:00.000Z" },
+      { seq: 5, type: "notifications.read_state_changed", notification_ids: ["a"], versions: [3], read_at: null },
+      { seq: 6, type: "notification.updated", notification: { ...original, version: 4, response_state: "answered" } },
+    ] }] });
+
+    expect(store.notifications.value[0]).toMatchObject({ version: 4, read_at: null, response_state: "answered" });
   });
 
   it("adopts an already-answered winner and exposes a retryable error", () => {

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from notification_hub.domain import parse_timestamp
 
-from .errors import ProtocolError
+from .errors import NetworkError, ProtocolError, ServerError
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,8 +28,8 @@ class NoncePool:
         clock: Callable[[], float] = time.time,
         skew_seconds: float = 5,
     ) -> None:
-        if not 1 <= batch_size <= 128:
-            raise ValueError("nonce batch size must be between 1 and 128")
+        if not 1 <= batch_size <= 64:
+            raise ValueError("nonce batch size must be between 1 and 64")
         self._fetch = fetch
         self._batch_size = batch_size
         self._clock = clock
@@ -43,16 +43,27 @@ class NoncePool:
             now = self._clock() + self._skew_seconds
             self._items = [item for item in self._items if item.expires_at > now]
             if len(self._items) <= self._refill_at:
-                request_id = str(uuid.uuid4())
-                raw = self._fetch(request_id, self._batch_size)
-                additions = self._parse(raw)
-                existing = {item.value for item in self._items}
-                if any(item.value in existing for item in additions):
-                    raise ProtocolError("hub reissued an outstanding nonce")
-                self._items.extend(additions)
-                self._items = [item for item in self._items if item.expires_at > now]
-                if not self._items:
-                    raise ProtocolError("hub returned no usable nonces")
+                try:
+                    count = self._batch_size
+                    while True:
+                        try:
+                            raw = self._fetch(str(uuid.uuid4()), count)
+                            break
+                        except ServerError as exc:
+                            if exc.status != 429 or count == 1:
+                                raise
+                            count = max(1, count // 2)
+                    additions = self._parse(raw)
+                    existing = {item.value for item in self._items}
+                    if any(item.value in existing for item in additions):
+                        raise ProtocolError("hub reissued an outstanding nonce")
+                    self._items.extend(additions)
+                    self._items = [item for item in self._items if item.expires_at > now]
+                    if not self._items:
+                        raise ProtocolError("hub returned no usable nonces")
+                except (NetworkError, ServerError):
+                    if not self._items:
+                        raise
             return self._items.pop(0).value
 
     def _parse(self, value: object) -> list[Nonce]:

@@ -611,6 +611,7 @@ def test_read_state_handles_one_or_many_ids_and_emits_only_for_changes(client) -
     ).get_json()["events"][0]
     assert single_event["type"] == "notifications.read_state_changed"
     assert single_event["notification_ids"] == [first["id"]]
+    assert single_event["versions"] == [single.get_json()["notifications"][0]["version"]]
 
     unchanged = signed_mutation(
         client,
@@ -639,6 +640,7 @@ def test_read_state_handles_one_or_many_ids_and_emits_only_for_changes(client) -
     ).get_json()["events"][0]
     assert event["type"] == "notifications.read_state_changed"
     assert event["notification_ids"] == [first["id"]]
+    assert event["versions"] == [bulk.get_json()["notifications"][0]["version"]]
     assert event["read_at"] is None
 
 

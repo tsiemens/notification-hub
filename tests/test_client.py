@@ -105,6 +105,9 @@ def test_signed_reads_and_mutations_interoperate(tmp_path: Path, private_key) ->
 
     read_result = client.set_read_state([payload["id"]], True)
     assert read_result.notifications[0].read_at is not None
+    assert read_result.event_seq is not None
+    read_event = client.get_events(read_result.event_seq - 1).events[0]
+    assert read_event.versions == (read_result.notifications[0].version,)
     response_result = client.respond(payload["id"], "ok")
     assert response_result.notification.response.option_id == "ok"
 
@@ -117,3 +120,43 @@ def test_signed_reads_and_mutations_interoperate(tmp_path: Path, private_key) ->
     state.apply_page(events)
     assert later["id"] in state.notifications
     app.extensions["notification_hub_lifecycle"].stop(join=True)
+
+
+def test_fresh_one_nonce_clients_can_make_five_mutations(tmp_path: Path) -> None:
+    private_key = ed25519.Ed25519PrivateKey.generate()
+    private_path = tmp_path / "client.pem"
+    public_path = tmp_path / "client.pub"
+    private_path.write_bytes(
+        private_key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+    )
+    public_path.write_bytes(
+        private_key.public_key().public_bytes(
+            serialization.Encoding.PEM,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+    )
+    app = create_app(
+        ServerConfig(
+            database=tmp_path / "hub.sqlite3",
+            auth=AuthConfig(
+                signing_keys=(
+                    SigningKey("client", "client-key", public_path, frozenset({"read_state"})),
+                )
+            ),
+        )
+    )
+    payload = _notification(options=False)
+    with app.test_client() as producer:
+        assert producer.post("/api/v1/notifications", json=payload).status_code == 201
+    config = ClientConfig(RemoteServerConfig("http://localhost"), "client-key", private_path)
+    try:
+        for read in (True, False, True, False, True):
+            client = HubClient(config, transport=FlaskTransport(app), nonce_batch_size=1)
+            result = client.set_read_state([payload["id"]], read)
+            assert (result.notifications[0].read_at is not None) is read
+    finally:
+        app.extensions["notification_hub_lifecycle"].stop(join=True)

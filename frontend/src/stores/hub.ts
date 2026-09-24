@@ -107,17 +107,14 @@ export function createHubStore() {
     if (event.type === "notification.created" || event.type === "notification.updated") {
       upsert(event.notification);
     } else if (event.type === "notifications.read_state_changed") {
-      for (const id of event.notification_ids) {
+      for (const [index, id] of event.notification_ids.entries()) {
         const current = state.notifications.get(id);
-        if (current && current.read_at !== event.read_at) {
-          // The server increments the record version for every changed read
-          // state, although the compact event omits that version. If the state
-          // already matches, the corresponding mutation result arrived first
-          // and already supplied the canonical version.
+        const version = event.versions[index];
+        if (current && version !== undefined && version > current.version) {
           state.notifications.set(id, {
             ...current,
             read_at: event.read_at,
-            version: current.version + 1,
+            version,
           });
         }
       }
