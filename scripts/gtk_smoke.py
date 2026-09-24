@@ -72,6 +72,8 @@ def main() -> None:
             )
         )
         server = make_server("127.0.0.1", 0, app, threaded=True)
+        # Join request handlers before removing the temporary database.
+        server.daemon_threads = False
         server_thread = threading.Thread(target=server.serve_forever, daemon=True)
         server_thread.start()
 
@@ -112,9 +114,9 @@ def main() -> None:
             ) from exc
         finally:
             server.shutdown()
+            app.extensions["notification_hub_lifecycle"].stop(join=True)
             server.server_close()
             server_thread.join(3)
-            app.extensions["notification_hub_lifecycle"].stop(join=True)
 
         if completed.returncode:
             raise SystemExit(

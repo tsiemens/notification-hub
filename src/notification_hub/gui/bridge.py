@@ -27,11 +27,13 @@ class GuiBridge:
         settings_store: ClientSettingsStore | None = None,
         external_opener: Callable[[str], object] = webbrowser.open,
         sound_file_chooser: Callable[[], str | None] | None = None,
+        on_updates_requested: Callable[[], None] | None = None,
     ) -> None:
         self._controller = controller
         self._settings_store = settings_store
         self._external_opener = external_opener
         self._sound_file_chooser = sound_file_chooser
+        self._on_updates_requested = on_updates_requested
 
     def set_sound_file_chooser(self, chooser: Callable[[], str | None]) -> None:
         self._sound_file_chooser = chooser
@@ -46,7 +48,10 @@ class GuiBridge:
             or after_revision < 0
         ):
             raise ValueError("after_revision must be a non-negative integer")
-        return self._controller.get_updates(after_revision)
+        updates = self._controller.get_updates(after_revision)
+        if self._on_updates_requested is not None:
+            self._on_updates_requested()
+        return updates
 
     def get_settings(self) -> dict[str, Any]:
         if self._settings_store is None:

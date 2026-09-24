@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import sys
 import threading
-import time
 from collections.abc import Sequence
 from contextlib import ExitStack
 from importlib.resources import as_file, files
@@ -37,32 +36,6 @@ def _gtk_failure(exc: BaseException) -> str:
     )
 
 
-def _install_smoke_probe(window: object, result: list[str]) -> None:
-    """Close a real native window after Vue and the pywebview bridge are usable."""
-
-    def probe() -> None:
-        deadline = time.monotonic() + 15
-        detail = "the packaged Vue application did not become ready"
-        while time.monotonic() < deadline:
-            try:
-                ready = window.evaluate_js(  # type: ignore[attr-defined]
-                    "Boolean(document.querySelector('.app-shell main') "
-                    "&& window.pywebview && window.pywebview.api "
-                    "&& window.pywebview.api.get_initial_state)"
-                )
-                if ready:
-                    result.append("ready")
-                    window.destroy()  # type: ignore[attr-defined]
-                    return
-            except Exception as exc:  # pywebview reports transient load errors here
-                detail = str(exc)
-            time.sleep(0.1)
-        result.append(detail)
-        window.destroy()  # type: ignore[attr-defined]
-
-    threading.Thread(target=probe, name="nh-gui-smoke-probe", daemon=True).start()
-
-
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
@@ -81,7 +54,41 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
     controller = GuiController(client)
-    bridge = GuiBridge(controller, settings_store=ClientSettingsStore(config_path, settings))
+    smoke_result: list[str] = []
+    smoke_lock = threading.Lock()
+
+    def finish_smoke(detail: str = "ready") -> None:
+        with smoke_lock:
+            if smoke_result:
+                return
+            smoke_result.append(detail)
+        print(f"nh-client: GTK smoke test: {detail}; closing window", file=sys.stderr, flush=True)
+        caller = threading.current_thread()
+        if detail == "ready":
+            # Vue immediately polls again when this bridge call resolves.
+            # Suspend subsequent polls while the current reply is delivered.
+            window.evaluate_js(
+                "window.pywebview.api.get_updates = () => new Promise(() => {}); void 0"
+            )
+
+        def close_after_reply() -> None:
+            if detail == "ready":
+                # pywebview sends the JS reply after get_updates returns. Closing
+                # earlier strands its non-daemon worker in GTK evaluate_js.
+                caller.join()
+            # The backend schedules GTK cleanup without waiting for shown.
+            window.gui.destroy_window(window.uid)
+
+        threading.Thread(
+            target=close_after_reply, name="nh-gui-smoke-close", daemon=True
+        ).start()
+
+    # Vue requests updates only after mounting and consuming the initial bridge state.
+    bridge = GuiBridge(
+        controller,
+        settings_store=ClientSettingsStore(config_path, settings),
+        on_updates_requested=finish_smoke if args.smoke_test else None,
+    )
     resource = files("notification_hub.gui").joinpath("web")
     try:
         with ExitStack() as stack:
@@ -93,7 +100,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             window = webview.create_window(
                 "Notification Hub",
-                index.resolve().as_uri(),
+                str(index.resolve()),
                 js_api=bridge,
                 min_size=(720, 480),
             )
@@ -108,9 +115,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             bridge.set_sound_file_chooser(choose_sound_file)
             window.events.closed += lambda *_args: controller.stop()
-            smoke_result: list[str] = []
+            smoke_timer = None
             if args.smoke_test:
-                window.events.loaded += lambda *_args: _install_smoke_probe(window, smoke_result)
+                smoke_timer = threading.Timer(
+                    20, finish_smoke, args=("the packaged Vue application did not request updates",)
+                )
+                smoke_timer.daemon = True
+                smoke_timer.start()
             controller.start()
             try:
                 webview.start(gui="gtk", debug=False)
@@ -121,6 +132,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     raise
                 print(f"nh-client: {_gtk_failure(exc)}", file=sys.stderr)
                 return 1
+            finally:
+                if smoke_timer is not None:
+                    smoke_timer.cancel()
             if args.smoke_test and smoke_result != ["ready"]:
                 detail = smoke_result[0] if smoke_result else "the window closed before loading"
                 print(f"nh-client: GTK smoke test failed: {detail}", file=sys.stderr)
