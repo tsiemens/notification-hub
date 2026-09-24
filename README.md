@@ -95,7 +95,7 @@ For an install directly from a Git repository, use the same command after
 installing (replace the example URL with the repository URL):
 
 ```sh
-uv tool install 'notification-hub[gui] @ git+https://github.com/OWNER/notification-hub.git' &&
+uv tool install 'notification-hub[gui] @ git+https://github.com/tsiemens/notification-hub.git' &&
 nh-desktop-installer install
 ```
 
