@@ -4852,7 +4852,7 @@ var KeyboardHelpDialog_default = /* @__PURE__ */ defineComponent({
 				type: "button",
 				"aria-label": "Close keyboard shortcuts",
 				onClick: _cache[0] || (_cache[0] = ($event) => emit("close"))
-			}, "×", 512)]), _cache[2] || (_cache[2] = createStaticVNode("<table><thead><tr><th scope=\"col\">Key</th><th scope=\"col\">Action</th></tr></thead><tbody><tr><th scope=\"row\"><kbd>j</kbd> / <kbd>k</kbd></th><td>Select next / previous visible notification</td></tr><tr><th scope=\"row\"><kbd>Enter</kbd></th><td>Toggle details on the selected notification</td></tr><tr><th scope=\"row\"><kbd>m</kbd></th><td>Toggle read / unread on the selected notification</td></tr><tr><th scope=\"row\"><kbd>Home</kbd></th><td>Select and reveal the newest visible notification</td></tr><tr><th scope=\"row\"><kbd>?</kbd></th><td>Open this keyboard help</td></tr><tr><th scope=\"row\"><kbd>Escape</kbd></th><td>Close help or settings, or cancel a response editor</td></tr></tbody></table>", 1))], 32)]);
+			}, "×", 512)]), _cache[2] || (_cache[2] = createStaticVNode("<table><thead><tr><th scope=\"col\">Key</th><th scope=\"col\">Action</th></tr></thead><tbody><tr><th scope=\"row\"><kbd>j</kbd> / <kbd>k</kbd></th><td>Select next / previous visible notification</td></tr><tr><th scope=\"row\"><kbd>d</kbd></th><td>Toggle details on the selected notification</td></tr><tr><th scope=\"row\"><kbd>m</kbd></th><td>Toggle read / unread on the selected notification</td></tr><tr><th scope=\"row\"><kbd>Home</kbd></th><td>Select and reveal the newest visible notification</td></tr><tr><th scope=\"row\"><kbd>?</kbd></th><td>Open this keyboard help</td></tr><tr><th scope=\"row\"><kbd>Escape</kbd></th><td>Close help or settings, or cancel a response editor</td></tr></tbody></table>", 1))], 32)]);
 		};
 	}
 });
@@ -10258,10 +10258,10 @@ var App_default = /* @__PURE__ */ defineComponent({
 				selectCard(ids[0], true);
 				return;
 			}
-			if ((event.key === "Enter" || event.key === "m") && !event.repeat && current >= 0) {
+			if ((event.key === "d" || event.key === "m") && !event.repeat && current >= 0) {
 				event.preventDefault();
 				const card = cardRefs.get(ids[current]);
-				if (event.key === "Enter") card?.toggleDetails();
+				if (event.key === "d") card?.toggleDetails();
 				else card?.toggleRead();
 			}
 		}

@@ -255,7 +255,7 @@ describe("large feed", () => {
     wrapper.unmount();
   });
 
-  it("toggles details with Enter and never turns an application shortcut into a response", async () => {
+  it("toggles details with d and never turns an application shortcut into a response", async () => {
     const option = { id: "approve", label: "Approve", message_mode: "optional" as const, appearance: "primary" as const };
     const actionable = {
       ...mocks.items[119], details: "More information", response_state: "pending" as const,
@@ -273,7 +273,7 @@ describe("large feed", () => {
     const wrapper = mount(App, { attachTo: document.body });
     await flushPromises();
     const card = wrapper.get('article[aria-current="true"]');
-    card.element.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    card.element.dispatchEvent(new KeyboardEvent("keydown", { key: "d", bubbles: true }));
     await flushPromises();
     expect(card.get(".details-toggle").attributes("aria-expanded")).toBe("true");
     expect(mocks.respond).not.toHaveBeenCalled();
@@ -300,7 +300,7 @@ describe("large feed", () => {
 
     const dialog = wrapper.get('.keyboard-help-dialog[role="dialog"][aria-modal="true"]');
     expect(dialog.text()).toContain("j / k");
-    expect(dialog.text()).toContain("Enter");
+    expect(dialog.text()).toContain("d");
     expect(dialog.text()).toContain("Escape");
     const close = dialog.get('button[aria-label="Close keyboard shortcuts"]');
     expect(document.activeElement).toBe(close.element);

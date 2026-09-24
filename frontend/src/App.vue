@@ -193,10 +193,10 @@ function handleShortcut(event: KeyboardEvent): void {
     selectCard(ids[0], true);
     return;
   }
-  if ((event.key === "Enter" || event.key === "m") && !event.repeat && current >= 0) {
+  if ((event.key === "d" || event.key === "m") && !event.repeat && current >= 0) {
     event.preventDefault();
     const card = cardRefs.get(ids[current]);
-    if (event.key === "Enter") card?.toggleDetails();
+    if (event.key === "d") card?.toggleDetails();
     else card?.toggleRead();
   }
 }

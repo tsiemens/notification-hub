@@ -3,6 +3,7 @@ from __future__ import annotations
 import http.client
 import json
 import ssl
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -21,7 +22,7 @@ class HttpResponse:
 
 
 class JsonTransport:
-    """Small JSON HTTP transport with separate connect and response timeouts."""
+    """Small JSON HTTP transport with a request budget and connect timeout cap."""
 
     def __init__(self, config: RemoteServerConfig) -> None:
         self.config = config
@@ -34,6 +35,7 @@ class JsonTransport:
         headers: Mapping[str, str],
         timeout: float,
     ) -> HttpResponse:
+        deadline = time.monotonic() + timeout
         parsed = urlsplit(url)
         target = parsed.path or "/"
         if parsed.query:
@@ -45,17 +47,22 @@ class JsonTransport:
             connection: http.client.HTTPConnection = http.client.HTTPSConnection(
                 parsed.hostname,
                 parsed.port,
-                timeout=self.config.connect_timeout_seconds,
+                timeout=min(self.config.connect_timeout_seconds, timeout),
                 context=context,
             )
         else:
             connection = http.client.HTTPConnection(
-                parsed.hostname, parsed.port, timeout=self.config.connect_timeout_seconds
+                parsed.hostname,
+                parsed.port,
+                timeout=min(self.config.connect_timeout_seconds, timeout),
             )
         try:
             connection.connect()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("request deadline elapsed during connection")
             if connection.sock is not None:
-                connection.sock.settimeout(timeout)
+                connection.sock.settimeout(remaining)
             connection.request(method, target, body=body, headers=dict(headers))
             response = connection.getresponse()
             return HttpResponse(response.status, response.read(), dict(response.getheaders()))

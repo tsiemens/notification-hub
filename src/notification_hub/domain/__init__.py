@@ -12,6 +12,7 @@ from .models import (
     create_fingerprint,
     format_timestamp,
     parse_timestamp,
+    validate_text,
 )
 
 __all__ = [
@@ -28,4 +29,5 @@ __all__ = [
     "create_fingerprint",
     "format_timestamp",
     "parse_timestamp",
+    "validate_text",
 ]

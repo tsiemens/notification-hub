@@ -72,6 +72,12 @@ three `[auth]` timing and nonce settings control signature age, nonce lifetime,
 and the per-key number of outstanding nonces. See [Creating client signing
 keys](signing-keys.md) to create and install key pairs.
 
+`signature_max_age_seconds` must be at least 60 because the shipped clients
+sign requests for 60 seconds. `nonce_ttl_seconds` must be at least 6 so that
+new nonces remain usable after the clients' five-second safety margin.
+The client nonce pool reduces its request size when the outstanding nonce
+limit is below its default batch of 32.
+
 ## Notifier: `notifier.config.toml`
 
 ```toml
@@ -94,6 +100,9 @@ seconds. By default the notifier uses its host name as the domain; set
 `sender` identifies the producer. `priority` can be
 `low`, `normal`, `high`, or `urgent`. Command-line options such as `--domain`,
 `--sender`, and `--priority` can override these defaults for a notification.
+When waiting for a response, `--timeout` sets a local deadline that includes
+network time. A response received after that deadline is treated as a timeout;
+the server request may still be pending.
 
 ## Desktop and inspection client: `client.config.toml`
 

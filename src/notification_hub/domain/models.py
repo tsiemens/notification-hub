@@ -52,10 +52,40 @@ def _enum_value(enum_type: type[StrEnum], value: Any, field_name: str) -> StrEnu
         raise ValidationError(f"invalid {field_name}: {value!r}") from exc
 
 
-def _bounded_text(value: Any, field_name: str, minimum: int, maximum: int) -> str:
+def validate_text(value: Any, field_name: str, minimum: int, maximum: int) -> str:
     if not isinstance(value, str) or not minimum <= len(value) <= maximum:
         raise ValidationError(f"{field_name} must contain {minimum}..{maximum} characters")
+    if "\x00" in value:
+        raise ValidationError(f"{field_name} must not contain NUL characters")
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ValidationError(f"{field_name} must contain valid UTF-8 text") from exc
     return value
+
+
+def _validated_tags(value: Any) -> tuple[str, ...]:
+    if not isinstance(value, (tuple, list)):
+        raise ValidationError("tags must be an array")
+    tags = tuple(value)
+    if len(tags) > 32:
+        raise ValidationError("tags must contain at most 32 unique values")
+    for tag in tags:
+        validate_text(tag, "tag", 1, 64)
+    if len(set(tags)) != len(tags):
+        raise ValidationError("tags must contain at most 32 unique values")
+    return tags
+
+
+def _validated_options(value: Any) -> tuple[ResponseOption, ...]:
+    if not isinstance(value, (tuple, list)):
+        raise ValidationError("response options must be an array")
+    options = tuple(value)
+    if any(not isinstance(option, ResponseOption) for option in options):
+        raise ValidationError("response options must contain response options")
+    if len(options) > 16 or len({option.id for option in options}) != len(options):
+        raise ValidationError("response options must contain at most 16 unique ids")
+    return options
 
 
 def _uuid4(value: Any, field_name: str) -> str:
@@ -78,6 +108,7 @@ def format_timestamp(value: datetime) -> str:
 def parse_timestamp(value: str, *, require_canonical: bool = False) -> datetime:
     if not isinstance(value, str):
         raise ValidationError("timestamp must be a string")
+    validate_text(value, "timestamp", 1, 128)
     if require_canonical and not _UTC_MILLISECONDS.fullmatch(value):
         raise ValidationError("timestamp must use UTC with millisecond precision")
     try:
@@ -99,7 +130,7 @@ class ResponseOption:
     def __post_init__(self) -> None:
         if not isinstance(self.id, str) or not _OPTION_ID.fullmatch(self.id):
             raise ValidationError("response option id is invalid")
-        _bounded_text(self.label, "response option label", 1, 80)
+        validate_text(self.label, "response option label", 1, 80)
         object.__setattr__(
             self, "message_mode", _enum_value(MessageMode, self.message_mode, "message_mode")
         )
@@ -109,7 +140,7 @@ class ResponseOption:
 
     def validate_message(self, message: str | None) -> None:
         if message is not None:
-            _bounded_text(message, "response message", 0, 16 * 1024)
+            validate_text(message, "response message", 0, 16 * 1024)
         if self.message_mode is MessageMode.NONE and message not in (None, ""):
             raise ValidationError("this response option does not accept a message")
         if self.message_mode is MessageMode.REQUIRED and not message:
@@ -139,27 +170,19 @@ class CreateNotification:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "id", _uuid4(self.id, "id"))
-        _bounded_text(self.domain, "domain", 1, 128)
-        _bounded_text(self.sender, "sender", 1, 128)
-        _bounded_text(self.summary, "summary", 1, 256)
+        validate_text(self.domain, "domain", 1, 128)
+        validate_text(self.sender, "sender", 1, 128)
+        validate_text(self.summary, "summary", 1, 256)
         if "\n" in self.summary or "\r" in self.summary:
             raise ValidationError("summary must be a single logical line")
-        _bounded_text(self.message, "message", 0, 32 * 1024)
+        validate_text(self.message, "message", 0, 32 * 1024)
         if self.details is not None:
-            _bounded_text(self.details, "details", 0, 128 * 1024)
-        tags = tuple(self.tags)
-        if len(tags) > 32 or len(set(tags)) != len(tags):
-            raise ValidationError("tags must contain at most 32 unique values")
-        for tag in tags:
-            _bounded_text(tag, "tag", 1, 64)
-        object.__setattr__(self, "tags", tags)
+            validate_text(self.details, "details", 0, 128 * 1024)
+        object.__setattr__(self, "tags", _validated_tags(self.tags))
         object.__setattr__(self, "priority", _enum_value(Priority, self.priority, "priority"))
         if self.source_created_at is not None:
             parse_timestamp(self.source_created_at)
-        options = tuple(self.response_options)
-        if len(options) > 16 or len({option.id for option in options}) != len(options):
-            raise ValidationError("response options must contain at most 16 unique ids")
-        object.__setattr__(self, "response_options", options)
+        object.__setattr__(self, "response_options", _validated_options(self.response_options))
 
     @property
     def initial_state(self) -> ResponseState:
@@ -198,12 +221,12 @@ class Response:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "request_id", _uuid4(self.request_id, "request_id"))
-        if not _OPTION_ID.fullmatch(self.option_id):
+        if not isinstance(self.option_id, str) or not _OPTION_ID.fullmatch(self.option_id):
             raise ValidationError("response option id is invalid")
         if self.message is not None:
-            _bounded_text(self.message, "response message", 0, 16 * 1024)
+            validate_text(self.message, "response message", 0, 16 * 1024)
         parse_timestamp(self.responded_at, require_canonical=True)
-        _bounded_text(self.responded_by, "responded_by", 1, 256)
+        validate_text(self.responded_by, "responded_by", 1, 256)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -231,20 +254,15 @@ class Notification:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "id", _uuid4(self.id, "id"))
-        _bounded_text(self.domain, "domain", 1, 128)
-        _bounded_text(self.sender, "sender", 1, 128)
-        _bounded_text(self.summary, "summary", 1, 256)
+        validate_text(self.domain, "domain", 1, 128)
+        validate_text(self.sender, "sender", 1, 128)
+        validate_text(self.summary, "summary", 1, 256)
         if "\n" in self.summary or "\r" in self.summary:
             raise ValidationError("summary must be a single logical line")
-        _bounded_text(self.message, "message", 0, 32 * 1024)
+        validate_text(self.message, "message", 0, 32 * 1024)
         if self.details is not None:
-            _bounded_text(self.details, "details", 0, 128 * 1024)
-        tags = tuple(self.tags)
-        if len(tags) > 32 or len(set(tags)) != len(tags):
-            raise ValidationError("tags must contain at most 32 unique values")
-        for tag in tags:
-            _bounded_text(tag, "tag", 1, 64)
-        object.__setattr__(self, "tags", tags)
+            validate_text(self.details, "details", 0, 128 * 1024)
+        object.__setattr__(self, "tags", _validated_tags(self.tags))
         object.__setattr__(self, "priority", _enum_value(Priority, self.priority, "priority"))
         object.__setattr__(
             self,
@@ -259,9 +277,7 @@ class Notification:
             parse_timestamp(self.source_created_at)
         if self.version < 1:
             raise ValidationError("version must be positive")
-        options = tuple(self.response_options)
-        if len(options) > 16 or len({option.id for option in options}) != len(options):
-            raise ValidationError("response options must contain at most 16 unique ids")
+        options = _validated_options(self.response_options)
         object.__setattr__(self, "response_options", options)
         if not options and self.response_state is not ResponseState.NOT_REQUESTED:
             raise ValidationError("a notification without options must be not_requested")

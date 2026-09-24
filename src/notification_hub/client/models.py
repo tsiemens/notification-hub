@@ -382,7 +382,9 @@ class SyncState:
                 del notifications[event.id]
             else:
                 assert event.name is not None
-                if event.name not in domains or any(
+                # A previous page may have removed the last notification and its summary.
+                # The activity entry keeps that domain recognizable until its delete event.
+                if (event.name not in domains and event.name not in activity) or any(
                     item.domain == event.name for item in notifications.values()
                 ):
                     raise ProtocolError("domain deletion cannot be reconciled")

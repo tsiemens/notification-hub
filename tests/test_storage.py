@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from notification_hub.client.models import ClientSnapshot, EventPage, SyncState, parse_event
 from notification_hub.config import RetentionConfig
 from notification_hub.domain import CreateNotification, MessageMode, ResponseOption, ResponseState
 from notification_hub.storage import (
@@ -261,6 +262,45 @@ def test_cleanup_prunes_old_informational_history(repository: NotificationReposi
     result = repository.cleanup(RetentionConfig(), now=NOW)
     assert result.deleted_notifications == 1
     assert repository.list_notifications() == []
+
+
+@pytest.mark.parametrize("page_size", [1, 2, 3])
+def test_cleanup_domain_deletion_replays_across_event_pages(
+    repository: NotificationRepository, page_size: int
+) -> None:
+    repository.create(request(summary="First"), now=NOW - timedelta(days=8))
+    repository.create(request(summary="Second"), now=NOW - timedelta(days=8))
+    snapshot = repository.snapshot(now=NOW)
+    state = SyncState.from_snapshot(
+        ClientSnapshot(
+            snapshot.sequence,
+            snapshot.generated_at,
+            tuple(snapshot.domains),
+            tuple(snapshot.notifications),
+        )
+    )
+    repository.cleanup(RetentionConfig(), now=NOW)
+    assert [event["type"] for event in repository.events()[-3:]] == [
+        "notification.deleted",
+        "notification.deleted",
+        "domain.deleted",
+    ]
+
+    while True:
+        page = repository.event_page(state.last_sequence, page_size)
+        state.apply_page(
+            EventPage(
+                tuple(parse_event(event) for event in page.events),
+                page.last_sequence,
+                page.has_more,
+            )
+        )
+        if not page.has_more:
+            break
+
+    assert state.notifications == {}
+    assert state.domains == {}
+    assert state.last_sequence == repository.snapshot(now=NOW).sequence
 
 
 def test_query_notifications_uses_bound_stable_cursors(

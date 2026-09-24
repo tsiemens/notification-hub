@@ -23,6 +23,7 @@ from notification_hub.domain import (
     ValidationError,
     create_fingerprint,
     format_timestamp,
+    validate_text,
 )
 from notification_hub.storage.database import Database
 
@@ -136,8 +137,7 @@ class NotificationRepository:
         max_outstanding: int,
         now: datetime | None = None,
     ) -> list[IssuedNonce]:
-        if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
-            raise ValidationError("request_id must be a string of 1..128 characters")
+        validate_text(request_id, "request_id", 1, 128)
         if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= 64:
             raise ValidationError("count must be an integer from 1 through 64")
         current_time = now or datetime.now(UTC)
@@ -406,6 +406,8 @@ class NotificationRepository:
             raise ValidationError("limit must be an integer from 1 through 500")
         with self.database.read_connection() as connection:
             last_allocated = self._last_allocated_sequence(connection)
+            if after > last_allocated:
+                raise CursorExpiredError("event cursor exceeds current sequence")
             oldest = connection.execute("SELECT min(seq) FROM events").fetchone()[0]
             if (oldest is not None and after < oldest - 1) or (
                 oldest is None and after < last_allocated
@@ -433,6 +435,7 @@ class NotificationRepository:
         now: datetime | None = None,
     ) -> MutationResult:
         timestamp = format_timestamp(now or datetime.now(UTC))
+        Response(request_id, option_id, message, timestamp, responder_principal)
         with self.database.connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
@@ -470,7 +473,6 @@ class NotificationRepository:
                 if option is None:
                     raise ValidationError("response option does not exist")
                 option.validate_message(message)
-                Response(request_id, option_id, message, timestamp, responder_principal)
                 connection.execute(
                     "INSERT INTO responses("
                     "notification_id, request_id, option_id, message, responded_at, "
@@ -520,8 +522,8 @@ class NotificationRepository:
         *,
         now: datetime | None = None,
     ) -> MutationResult:
-        if reason is not None and len(reason) > 16 * 1024:
-            raise ValidationError("cancellation reason exceeds 16 KiB")
+        if reason is not None:
+            validate_text(reason, "cancellation reason", 0, 16 * 1024)
         timestamp = format_timestamp(now or datetime.now(UTC))
         with self.database.connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -578,11 +580,11 @@ class NotificationRepository:
         auth_nonce: tuple[str, str] | None = None,
         now: datetime | None = None,
     ) -> tuple[list[Notification], int | None]:
-        if (
-            not notification_ids
-            or len(notification_ids) > 500
-            or len(set(notification_ids)) != len(notification_ids)
-        ):
+        if not isinstance(notification_ids, list) or not 1 <= len(notification_ids) <= 500:
+            raise ValidationError("notification ids must contain 1..500 unique values")
+        for notification_id in notification_ids:
+            validate_text(notification_id, "notification id", 1, 256)
+        if len(set(notification_ids)) != len(notification_ids):
             raise ValidationError("notification ids must contain 1..500 unique values")
         timestamp = format_timestamp(now or datetime.now(UTC))
         target = timestamp if read else None

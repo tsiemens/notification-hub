@@ -6,6 +6,7 @@ import re
 import stat
 import tempfile
 import threading
+import tomllib
 from contextlib import suppress
 from pathlib import Path
 
@@ -17,6 +18,9 @@ from notification_hub.config import (
 )
 
 _HEADER = re.compile(r"^\s*\[{1,2}\s*([^\]]+?)\s*\]{1,2}\s*(?:#.*)?$")
+_TOP_LEVEL_SETTING = re.compile(
+    r"^\s*(?:ui|views|\"ui\"|\"views\"|'ui'|'views')\s*(?:\.|=)"
+)
 
 
 class SettingsWriteError(OSError):
@@ -60,16 +64,36 @@ def _serialize(settings: ClientSettings) -> str:
 
 
 def _without_settings(source: str) -> str:
-    """Remove top-level ui/views tables while retaining all unrelated text."""
+    """Remove top-level ui/views definitions while retaining unrelated text."""
     kept: list[str] = []
     skipping = False
-    for line in source.splitlines(keepends=True):
+    in_top_level = True
+    lines = source.splitlines(keepends=True)
+    index = 0
+    while index < len(lines):
+        line = lines[index]
         match = _HEADER.match(line.rstrip("\r\n"))
         if match:
             root = match.group(1).strip().split(".", 1)[0].strip().strip("\"'")
             skipping = root in {"ui", "views"}
+            in_top_level = False
+        if in_top_level and _TOP_LEVEL_SETTING.match(line):
+            # A value may span several lines (for example, an inline table or
+            # array). Parse the statement to find its end before removing it.
+            start = index
+            while True:
+                index += 1
+                try:
+                    tomllib.loads("".join(lines[start:index]))
+                except tomllib.TOMLDecodeError:
+                    if index == len(lines):
+                        raise
+                else:
+                    break
+            continue
         if not skipping:
             kept.append(line)
+        index += 1
     return "".join(kept).rstrip() + "\n\n"
 
 

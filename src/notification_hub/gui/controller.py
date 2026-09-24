@@ -12,6 +12,7 @@ from notification_hub.client.models import ClientSnapshot, EventPage, HubEvent, 
 from notification_hub.domain import Notification
 
 ConnectionState = Literal["starting", "connected", "reconnecting", "offline", "fatal"]
+_MAX_PROTOCOL_FAILURES = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,10 +189,15 @@ class GuiController:
         assert self.client is not None
         needs_snapshot = True
         delay = 0.5
+        protocol_failures = 0
         while not self._stop_event.is_set():
             try:
                 if needs_snapshot:
-                    self._replace(self.client.get_snapshot())
+                    try:
+                        self._replace(self.client.get_snapshot())
+                    except ProtocolError:
+                        self._set_connection("fatal", "The server returned an incompatible snapshot.")
+                        return
                     needs_snapshot = False
                     self._set_connection("connected")
                 page = self.client.get_events(
@@ -199,16 +205,22 @@ class GuiController:
                 )
                 self._apply_page(page)
                 self._set_connection("connected")
+                protocol_failures = 0
                 delay = 0.5
                 while page.has_more and not self._stop_event.is_set():
                     page = self.client.get_events(self._state.last_sequence, wait_seconds=0)
                     self._apply_page(page)
+                    protocol_failures = 0
             except ProtocolError:
-                if not self._has_snapshot:
-                    self._set_connection("fatal", "The server returned an incompatible response.")
+                protocol_failures += 1
+                if protocol_failures >= _MAX_PROTOCOL_FAILURES:
+                    self._set_connection("fatal", "The server returned an incompatible event feed.")
                     return
                 needs_snapshot = True
                 self._set_connection("reconnecting", "Refreshing synchronized state.")
+                if self._stop_event.wait(delay * (0.5 + self.client._random())):  # noqa: SLF001
+                    return
+                delay = min(delay * 2, 30)
             except ServerError as exc:
                 if (
                     exc.code == "cursor_expired"

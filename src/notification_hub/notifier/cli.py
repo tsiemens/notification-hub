@@ -101,7 +101,9 @@ def _add_create_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_wait_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--timeout", type=float, help="local wait timeout in seconds")
+    parser.add_argument(
+        "--timeout", type=float, help="local wait deadline in seconds, including network time"
+    )
     parser.add_argument(
         "--cancel-on-interrupt",
         action="store_true",

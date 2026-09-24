@@ -80,17 +80,28 @@ class NotifierClient:
         assert last_error is not None
         raise last_error
 
-    def poll(self, notification_id: str, *, wait_seconds: int = 0) -> Outcome:
+    def poll(
+        self,
+        notification_id: str,
+        *,
+        wait_seconds: int = 0,
+        request_timeout: float | None = None,
+    ) -> Outcome:
+        if request_timeout is not None and request_timeout <= 0:
+            raise ValueError("request_timeout must be greater than zero")
         query = urlencode({"wait_seconds": wait_seconds})
+        transport_timeout = max(self.config.request_timeout_seconds, wait_seconds + 1)
+        if request_timeout is not None:
+            transport_timeout = min(transport_timeout, request_timeout)
         value = self._request(
             "GET",
             f"/api/v1/notifications/{quote(notification_id, safe='')}/outcome?{query}",
-            timeout=max(self.config.request_timeout_seconds, wait_seconds + 1),
+            timeout=transport_timeout,
         )
         return Outcome.from_dict(value)
 
     def wait(self, notification_id: str, *, timeout: float | None = None) -> Outcome:
-        """Long-poll until terminal, retrying transient failures until the local deadline."""
+        """Long-poll until terminal; the local deadline includes network time."""
         if timeout is not None and timeout <= 0:
             raise ValueError("timeout must be greater than zero")
         deadline = None if timeout is None else time.monotonic() + timeout
@@ -103,10 +114,20 @@ class NotifierClient:
             if remaining is not None:
                 wait_seconds = max(0, min(wait_seconds, int(remaining)))
             try:
-                outcome = self.poll(notification_id, wait_seconds=wait_seconds)
+                remaining = None if deadline is None else deadline - time.monotonic()
+                if remaining is not None and remaining <= 0:
+                    raise WaitTimeout("timed out while the notification remains pending")
+                outcome = self.poll(
+                    notification_id, wait_seconds=wait_seconds, request_timeout=remaining
+                )
+                remaining = None if deadline is None else deadline - time.monotonic()
+                if remaining is not None and remaining <= 0:
+                    raise WaitTimeout("timed out while the notification remains pending")
                 retry_delay = 0.25
                 if outcome.state != "pending":
                     return outcome
+                if wait_seconds == 0 and remaining is not None:
+                    self._sleep(min(0.25, remaining))
             except (NetworkError, ServerError) as exc:
                 if isinstance(exc, ServerError) and not exc.retryable:
                     raise

@@ -109,6 +109,12 @@ class AuthConfig:
     max_outstanding_nonces_per_key: int = 128
     signing_keys: tuple[SigningKey, ...] = ()
 
+    def __post_init__(self) -> None:
+        _positive_int(
+            self.signature_max_age_seconds, "auth.signature_max_age_seconds", minimum=60
+        )
+        _positive_int(self.nonce_ttl_seconds, "auth.nonce_ttl_seconds", minimum=6)
+
 
 @dataclass(frozen=True, slots=True)
 class RetentionConfig:

@@ -36,7 +36,7 @@ function handleKeydown(event: KeyboardEvent): void {
         <thead><tr><th scope="col">Key</th><th scope="col">Action</th></tr></thead>
         <tbody>
           <tr><th scope="row"><kbd>j</kbd> / <kbd>k</kbd></th><td>Select next / previous visible notification</td></tr>
-          <tr><th scope="row"><kbd>Enter</kbd></th><td>Toggle details on the selected notification</td></tr>
+          <tr><th scope="row"><kbd>d</kbd></th><td>Toggle details on the selected notification</td></tr>
           <tr><th scope="row"><kbd>m</kbd></th><td>Toggle read / unread on the selected notification</td></tr>
           <tr><th scope="row"><kbd>Home</kbd></th><td>Select and reveal the newest visible notification</td></tr>
           <tr><th scope="row"><kbd>?</kbd></th><td>Open this keyboard help</td></tr>
