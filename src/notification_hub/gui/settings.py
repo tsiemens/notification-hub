@@ -18,9 +18,7 @@ from notification_hub.config import (
 )
 
 _HEADER = re.compile(r"^\s*\[{1,2}\s*([^\]]+?)\s*\]{1,2}\s*(?:#.*)?$")
-_TOP_LEVEL_SETTING = re.compile(
-    r"^\s*(?:ui|views|\"ui\"|\"views\"|'ui'|'views')\s*(?:\.|=)"
-)
+_TOP_LEVEL_SETTING = re.compile(r"^\s*(?:ui|views|\"ui\"|\"views\"|'ui'|'views')\s*(?:\.|=)")
 
 
 class SettingsWriteError(OSError):

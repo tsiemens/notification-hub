@@ -101,12 +101,36 @@ def test_smoke_closes_only_after_bridge_reply_finishes(
     polling_suspended = threading.Event()
     bridges = []
     workers = []
+    notification_id = "seeded-notification"
+
+    class Controller:
+        def __init__(self, _client):
+            pass
+
+        def start(self):
+            pass
+
+        def stop(self):
+            pass
+
+        def get_initial_state(self):
+            return {
+                "revision": 0,
+                "connection": {"state": "connected"},
+                "snapshot": {"notifications": [{"id": notification_id}]},
+            }
+
+        def get_updates(self, _after_revision):
+            return {"revision": 0, "updates": []}
 
     class Event:
         def __iadd__(self, callback):
             return self
 
     def evaluate_js(script):
+        if "querySelectorAll" in script:
+            assert notification_id in script
+            return True
         assert "get_updates = () => new Promise" in script
         polling_suspended.set()
 
@@ -126,7 +150,11 @@ def test_smoke_closes_only_after_bridge_reply_finishes(
 
     def start(**_kwargs):
         def bridge_call():
-            bridges[0]._on_updates_requested()
+            assert (
+                bridges[0].get_initial_state()["snapshot"]["notifications"][0]["id"]
+                == notification_id
+            )
+            bridges[0].get_updates(0)
             # pywebview still has to deliver the reply after the callback returns.
             reply_pending.set()
             allow_reply.wait(3)
@@ -146,4 +174,5 @@ def test_smoke_closes_only_after_bridge_reply_finishes(
     monkeypatch.setitem(
         sys.modules, "webview", SimpleNamespace(create_window=create_window, start=start)
     )
-    assert gui_main(["--smoke-test"]) == 0
+    monkeypatch.setattr("notification_hub.gui.launcher.GuiController", Controller)
+    assert gui_main(["--smoke-test", "--smoke-notification-id", notification_id]) == 0

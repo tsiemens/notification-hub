@@ -39,7 +39,7 @@ def test_install_resolves_uv_executable_without_session_path(
     assert result.returncode == 0, result.stderr
 
     desktop = data_home / "applications/notification-hub.desktop"
-    assert "Exec=\"" in desktop.read_text(encoding="utf-8")
+    assert 'Exec="' in desktop.read_text(encoding="utf-8")
     validator = shutil.which("desktop-file-validate")
     if validator:
         result = subprocess.run([validator, str(desktop)], capture_output=True, text=True)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import threading
 from collections.abc import Sequence
@@ -26,6 +27,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--config", type=Path, help="client TOML configuration path")
     parser.add_argument("--smoke-test", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--smoke-notification-id", help=argparse.SUPPRESS)
     return parser
 
 
@@ -38,6 +40,9 @@ def _gtk_failure(exc: BaseException) -> str:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.smoke_test and not args.smoke_notification_id:
+        print("nh-client: --smoke-test requires --smoke-notification-id", file=sys.stderr)
+        return 2
     try:
         config_path = (args.config or default_client_config_path()).expanduser()
         if args.config is not None and not config_path.exists():
@@ -56,6 +61,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     controller = GuiController(client)
     smoke_result: list[str] = []
     smoke_lock = threading.Lock()
+
+    def inspect_smoke() -> None:
+        state = controller.get_initial_state()
+        snapshot = state["snapshot"]
+        if state["connection"]["state"] != "connected" or snapshot is None:
+            return
+        if not any(item["id"] == args.smoke_notification_id for item in snapshot["notifications"]):
+            return
+        rendered = window.evaluate_js(
+            "Array.from(document.querySelectorAll('article[data-notification-id]'))"
+            ".some(card => card.dataset.notificationId === "
+            f"{json.dumps(args.smoke_notification_id)})"
+        )
+        if rendered:
+            finish_smoke()
 
     def finish_smoke(detail: str = "ready") -> None:
         with smoke_lock:
@@ -79,15 +99,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             # The backend schedules GTK cleanup without waiting for shown.
             window.gui.destroy_window(window.uid)
 
-        threading.Thread(
-            target=close_after_reply, name="nh-gui-smoke-close", daemon=True
-        ).start()
+        threading.Thread(target=close_after_reply, name="nh-gui-smoke-close", daemon=True).start()
 
-    # Vue requests updates only after mounting and consuming the initial bridge state.
+    # Vue requests updates only after its initial bridge call succeeds and state is accepted.
     bridge = GuiBridge(
         controller,
         settings_store=ClientSettingsStore(config_path, settings),
-        on_updates_requested=finish_smoke if args.smoke_test else None,
+        on_updates_requested=inspect_smoke if args.smoke_test else None,
     )
     resource = files("notification_hub.gui").joinpath("web")
     try:
@@ -118,7 +136,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             smoke_timer = None
             if args.smoke_test:
                 smoke_timer = threading.Timer(
-                    20, finish_smoke, args=("the packaged Vue application did not request updates",)
+                    20,
+                    finish_smoke,
+                    args=("the seeded notification did not render after a bridge call",),
                 )
                 smoke_timer.daemon = True
                 smoke_timer.start()

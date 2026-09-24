@@ -39,7 +39,11 @@ def main() -> None:
             fail("wheel has no console entry points")
         content = archive.read(entry_points).decode()
         for command in (
-            "nh-server", "nh-notifier", "nh-client-cli", "nh-client", "nh-desktop-installer"
+            "nh-server",
+            "nh-notifier",
+            "nh-client-cli",
+            "nh-client",
+            "nh-desktop-installer",
         ):
             if f"{command} =" not in content:
                 fail(f"wheel has no {command} entry point")
