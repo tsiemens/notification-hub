@@ -63,9 +63,10 @@ def main() -> None:
             repository=repository,
         )
         app.extensions["notification_hub_start"]()
+        seeded_id = str(uuid.uuid4())
         repository.create(
             CreateNotification(
-                str(uuid.uuid4()),
+                seeded_id,
                 "gtk-smoke",
                 "packaged-wheel",
                 "GTK/WebKitGTK smoke notification",
@@ -99,7 +100,14 @@ def main() -> None:
         environment.setdefault("PYWEBVIEW_LOG", "debug")
         try:
             completed = subprocess.run(
-                [str(executable), "--config", str(config_path), "--smoke-test"],
+                [
+                    str(executable),
+                    "--config",
+                    str(config_path),
+                    "--smoke-test",
+                    "--smoke-notification-id",
+                    seeded_id,
+                ],
                 cwd=root,
                 env=environment,
                 text=True,
@@ -123,7 +131,7 @@ def main() -> None:
                 f"GTK smoke test exited {completed.returncode}\n"
                 f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
             )
-        print("GTK/WebKitGTK window, bridge, and packaged Vue application are ready")
+        print("GTK/WebKitGTK window and bridge rendered the seeded notification")
 
 
 if __name__ == "__main__":

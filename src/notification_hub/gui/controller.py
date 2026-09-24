@@ -196,7 +196,9 @@ class GuiController:
                     try:
                         self._replace(self.client.get_snapshot())
                     except ProtocolError:
-                        self._set_connection("fatal", "The server returned an incompatible snapshot.")
+                        self._set_connection(
+                            "fatal", "The server returned an incompatible snapshot."
+                        )
                         return
                     needs_snapshot = False
                     self._set_connection("connected")
