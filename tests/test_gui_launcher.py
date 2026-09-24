@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import threading
 from importlib.resources import as_file, files
 from pathlib import Path
 from types import SimpleNamespace
@@ -88,3 +89,61 @@ def test_explicit_missing_desktop_config_is_an_error(
 ) -> None:
     assert gui_main(["--config", str(tmp_path / "missing.toml")]) == 1
     assert "configuration file does not exist" in capsys.readouterr().err
+
+
+def test_smoke_closes_only_after_bridge_reply_finishes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    closed = threading.Event()
+    reply_pending = threading.Event()
+    allow_reply = threading.Event()
+    polling_suspended = threading.Event()
+    bridges = []
+    workers = []
+
+    class Event:
+        def __iadd__(self, callback):
+            return self
+
+    def evaluate_js(script):
+        assert "get_updates = () => new Promise" in script
+        polling_suspended.set()
+
+    def destroy_window(uid):
+        assert uid == "smoke"
+        assert not workers[0].is_alive()
+        closed.set()
+
+    def create_window(_title, _url, *, js_api, **_kwargs):
+        bridges.append(js_api)
+        return SimpleNamespace(
+            uid="smoke",
+            events=SimpleNamespace(closed=Event()),
+            gui=SimpleNamespace(destroy_window=destroy_window),
+            evaluate_js=evaluate_js,
+        )
+
+    def start(**_kwargs):
+        def bridge_call():
+            bridges[0]._on_updates_requested()
+            # pywebview still has to deliver the reply after the callback returns.
+            reply_pending.set()
+            allow_reply.wait(3)
+
+        worker = threading.Thread(target=bridge_call)
+        workers.append(worker)
+        worker.start()
+        try:
+            assert reply_pending.wait(3)
+            assert polling_suspended.is_set()
+            assert not closed.is_set()
+        finally:
+            allow_reply.set()
+            worker.join(3)
+        assert closed.wait(3)
+
+    monkeypatch.setitem(
+        sys.modules, "webview", SimpleNamespace(create_window=create_window, start=start)
+    )
+    assert gui_main(["--smoke-test"]) == 0
