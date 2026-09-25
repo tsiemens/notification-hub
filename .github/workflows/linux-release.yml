@@ -74,13 +74,11 @@ jobs:
         with:
           name: python-release-artifacts
           path: dist
-      - name: Install GTK and WebKitGTK runtime
+      - name: Install bundled Ubuntu GUI dependencies
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
-            xvfb xauth libgtk-3-0t64 libwebkit2gtk-4.1-0 \
-            gir1.2-gtk-3.0 gir1.2-webkit2-4.1 \
-            libcairo2-dev libgirepository-1.0-dev pkg-config gcc python3-dev
+            xvfb xauth ./src/notification_hub/gui/resources/notification-hub-gui-deps_0.1.0-1_all.deb
       - name: Install the wheel with its GUI extra
         run: |
           wheel=$(find "$GITHUB_WORKSPACE/dist" -name '*.whl' -print -quit)

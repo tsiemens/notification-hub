@@ -39,32 +39,21 @@ This installs `nh-server`, `nh-notifier`, `nh-client-cli`, `nh-client`, and
 `nh-desktop-installer`. An editable install for development requires keeping
 the checkout in place.
 
-The desktop client only supports Linux right now. On Ubuntu 24.04 or 26.04, install its native
-runtime libraries with:
+The desktop client only supports Linux right now. On Ubuntu 24.04 or 26.04,
+install the base tool first. The desktop installer then installs the bundled
+`notification-hub-gui-deps` Debian package with apt and registers the desktop
+entry and icon. Install the GUI extra after its native dependencies are present:
 
 ```sh
-sudo apt install --yes \
-  libgtk-3-0t64 libwebkit2gtk-4.1-0 gir1.2-webkit2-4.1
+nh-desktop-installer install
+uv tool install --force 'notification-hub[gui]'
 ```
 
-The `gui` extra also installs PyGObject and pycairo into uv's isolated tool
-environment. They are built from source on Linux, so install their build
-prerequisites before running `uv tool install`:
+For an editable install, run these commands from the repository root instead:
 
 ```sh
-sudo apt install --yes \
-  libcairo2-dev libgirepository-2.0-dev pkg-config gcc python3-dev
-```
-
-Then install the optional GTK integration:
-
-```sh
-uv tool install 'notification-hub[gui]'
-```
-
-For an editable install, run this from the repository root instead:
-
-```sh
+uv tool install --force --editable .
+nh-desktop-installer install
 uv tool install --force --editable '.[gui]'
 ```
 
@@ -72,35 +61,31 @@ uv tool install --force --editable '.[gui]'
 `nh-client` runs with the `gui` extra.
 
 The project requires Python 3.12 or newer and uses GTK 3 with the WebKitGTK 4.1
-API. The `3`, `4.1`, and `2.0` in these Ubuntu package names identify library
-interfaces; they do not pin the exact package release. Use development headers
-for the Python version used by `uv` (for example, `python3.12-dev` in place of
-`python3-dev` if using Python 3.12 on a system whose default `python3` is
-newer). The compiler and development packages are needed to build the Python
-bindings during installation, but not to run the installed client. The Ubuntu
-24.04 package set above is used by the GTK smoke test in CI; the same package
-names are available on Ubuntu 26.04. On other Linux distributions, install the
-equivalent GTK 3, WebKitGTK 4.1, and PyGObject prerequisites. If the backend is
-unavailable, `nh-client` exits with an actionable diagnostic.
+API. The Debian package declares the GTK/WebKitGTK runtime libraries and the
+build prerequisites for PyGObject and pycairo, including
+`libgirepository-1.0-dev` for pywebview's PyGObject 3.50.0 pin. These packages
+remain apt-managed. On other Linux distributions, install the equivalent GTK 3,
+WebKitGTK 4.1, and PyGObject prerequisites; the desktop installer skips its apt
+step. If the backend is unavailable, `nh-client` exits with an actionable
+diagnostic.
 
 The wheel includes freedesktop metadata, but uv does not install shared desktop
-data or run a post-install hook. Register the desktop entry and icon for the
-current user with the packaged command:
+data or run a post-install hook. `nh-desktop-installer install` registers the
+desktop entry and icon for the current user.
+
+For an install directly from a Git repository, use the same sequence (replace
+the example URL with the repository URL):
 
 ```sh
+uv tool install 'notification-hub @ git+https://github.com/tsiemens/notification-hub.git'
 nh-desktop-installer install
+uv tool install --force 'notification-hub[gui] @ git+https://github.com/tsiemens/notification-hub.git'
 ```
 
-For an install directly from a Git repository, use the same command after
-installing (replace the example URL with the repository URL):
-
-```sh
-uv tool install 'notification-hub[gui] @ git+https://github.com/tsiemens/notification-hub.git' &&
-nh-desktop-installer install
-```
-
-Remove the integration with `nh-desktop-installer uninstall` before uninstalling
-the uv tool. If uv's tool executable directory is not on your `PATH`, run
+Remove the integration and its apt dependency package with
+`nh-desktop-installer uninstall` before uninstalling the uv tool. APT also
+removes dependencies it considers no longer needed. If uv's tool
+executable directory is not on your `PATH`, run
 `"$(uv tool dir --bin)/nh-desktop-installer" install` instead. The command uses
 `$XDG_DATA_HOME` when set to an absolute path, otherwise `~/.local/share`. It
 writes the absolute `nh-client` path into the desktop entry, so the desktop

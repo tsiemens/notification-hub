@@ -39,6 +39,9 @@ include = [
     "/LICENSE",
     "/README.md",
     "/pyproject.toml",
+    "/packaging/ubuntu/gui-deps/DEBIAN/control",
+    "/packaging/ubuntu/gui-deps/README.md",
+    "/scripts/build-gui-deps-deb.sh",
     "/src/notification_hub",
 ]
 

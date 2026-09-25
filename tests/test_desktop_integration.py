@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from notification_hub.gui import desktop_integration
 from notification_hub.gui.desktop_integration import main as desktop_main
 
 
@@ -74,6 +75,8 @@ def test_packaged_desktop_command_without_checkout(
     data_home = tmp_path / "desktop data"
     monkeypatch.setenv("UV_TOOL_BIN_DIR", str(executable_dir))
     monkeypatch.setenv("XDG_DATA_HOME", str(data_home))
+    monkeypatch.setattr(desktop_integration, "_install_gui_deps", lambda: None)
+    monkeypatch.setattr(desktop_integration, "_remove_gui_deps", lambda: None)
     monkeypatch.chdir(tmp_path)
 
     assert desktop_main(["install"]) == 0
