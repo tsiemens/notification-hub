@@ -25,6 +25,7 @@ def main() -> None:
             "notification_hub/gui/web/assets/index.css",
             "notification_hub/gui/resources/notification-hub.desktop.template",
             "notification_hub/gui/resources/notification-hub.svg",
+            "notification_hub/gui/resources/notification-hub-gui-deps_0.1.0-1_all.deb",
         }
         missing = required - names
         if missing:
@@ -56,6 +57,7 @@ def main() -> None:
             "/src/notification_hub/gui/web/assets/index.css",
             "/src/notification_hub/gui/resources/notification-hub.desktop.template",
             "/src/notification_hub/gui/resources/notification-hub.svg",
+            "/src/notification_hub/gui/resources/notification-hub-gui-deps_0.1.0-1_all.deb",
         ):
             if not any(name.endswith(suffix) for name in names):
                 fail(f"sdist is missing {suffix.removeprefix('/')}")

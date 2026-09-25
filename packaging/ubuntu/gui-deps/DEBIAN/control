@@ -1,0 +1,10 @@
+Package: notification-hub-gui-deps
+Version: 0.1.0-1
+Section: metapackages
+Priority: optional
+Architecture: all
+Maintainer: Notification Hub <tsiemens@users.noreply.github.com>
+Depends: libgtk-3-0t64, libwebkit2gtk-4.1-0, gir1.2-gtk-3.0, gir1.2-webkit2-4.1, libcairo2-dev, libgirepository-1.0-dev, pkg-config, gcc, python3-dev
+Description: Native dependencies for the Notification Hub desktop client
+ Installs the GTK and WebKitGTK runtime and the headers needed to build
+ PyGObject and pycairo in an isolated Python tool environment.
