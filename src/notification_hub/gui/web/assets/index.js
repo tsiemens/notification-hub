@@ -9012,11 +9012,11 @@ var _hoisted_29$2 = [
 	"title",
 	"onClick"
 ];
-var _hoisted_30$1 = {
+var _hoisted_30$2 = {
 	class: "response-mode-icon",
 	"aria-hidden": "true"
 };
-var _hoisted_31$1 = {
+var _hoisted_31$2 = {
 	key: 0,
 	viewBox: "0 0 20 20"
 };
@@ -9293,7 +9293,7 @@ var NotificationCard_default = /* @__PURE__ */ defineComponent({
 							"aria-label": `${option.label}. ${responseModeLabel(option)}`,
 							title: responseModeLabel(option),
 							onClick: ($event) => choose(option)
-						}, [createBaseVNode("span", _hoisted_30$1, [option.message_mode === "none" ? (openBlock(), createElementBlock("svg", _hoisted_31$1, [..._cache[10] || (_cache[10] = [createBaseVNode("path", { d: "M4 5h12v8H8l-4 3zM3 3l14 14" }, null, -1)])])) : option.message_mode === "optional" ? (openBlock(), createElementBlock("svg", _hoisted_32$1, [..._cache[11] || (_cache[11] = [createBaseVNode("path", { d: "M4 4h12v9H8l-4 3zM7 7h6M7 10h4" }, null, -1), createBaseVNode("circle", {
+						}, [createBaseVNode("span", _hoisted_30$2, [option.message_mode === "none" ? (openBlock(), createElementBlock("svg", _hoisted_31$2, [..._cache[10] || (_cache[10] = [createBaseVNode("path", { d: "M4 5h12v8H8l-4 3zM3 3l14 14" }, null, -1)])])) : option.message_mode === "optional" ? (openBlock(), createElementBlock("svg", _hoisted_32$1, [..._cache[11] || (_cache[11] = [createBaseVNode("path", { d: "M4 4h12v9H8l-4 3zM7 7h6M7 10h4" }, null, -1), createBaseVNode("circle", {
 							cx: "15.5",
 							cy: "15.5",
 							r: "2.5"
@@ -9386,8 +9386,8 @@ var _hoisted_29$1 = [
 	"aria-label",
 	"onClick"
 ];
-var _hoisted_30 = ["disabled", "onClick"];
-var _hoisted_31 = ["disabled", "onClick"];
+var _hoisted_30$1 = ["disabled", "onClick"];
+var _hoisted_31$1 = ["disabled", "onClick"];
 var _hoisted_32 = {
 	key: 0,
 	class: "empty"
@@ -9664,7 +9664,7 @@ var SettingsDialog_default = /* @__PURE__ */ defineComponent({
 											type: "button",
 											disabled: view.rules.length === 1,
 											onClick: ($event) => removeRule(viewIndex, ruleIndex)
-										}, "Remove rule", 8, _hoisted_30)
+										}, "Remove rule", 8, _hoisted_30$1)
 									])
 								]);
 							}), 128)),
@@ -9672,7 +9672,7 @@ var SettingsDialog_default = /* @__PURE__ */ defineComponent({
 								type: "button",
 								disabled: view.rules.length >= unref(32),
 								onClick: ($event) => addRule(viewIndex)
-							}, "Add rule", 8, _hoisted_31)
+							}, "Add rule", 8, _hoisted_31$1)
 						]);
 					}), 128)),
 					!draft.value.views.length ? (openBlock(), createElementBlock("p", _hoisted_32, "No custom views")) : createCommentVNode("", true)
@@ -10089,8 +10089,10 @@ var _hoisted_27 = {
 	class: "feed-toolbar",
 	"aria-label": "Current view actions"
 };
-var _hoisted_28 = ["disabled"];
-var _hoisted_29 = {
+var _hoisted_28 = { class: "feed-actions" };
+var _hoisted_29 = ["disabled"];
+var _hoisted_30 = ["disabled"];
+var _hoisted_31 = {
 	key: 1,
 	class: "empty"
 };
@@ -10110,6 +10112,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 		const showNew = /* @__PURE__ */ ref(false);
 		const now = /* @__PURE__ */ ref(Date.now());
 		const settings = /* @__PURE__ */ ref(null);
+		const savingReadVisibility = /* @__PURE__ */ ref(false);
 		const settingsOpen = /* @__PURE__ */ ref(false);
 		const helpOpen = /* @__PURE__ */ ref(false);
 		const settingsError = /* @__PURE__ */ ref(null);
@@ -10152,11 +10155,34 @@ var App_default = /* @__PURE__ */ defineComponent({
 				settingsError.value = error instanceof Error ? error.message : "Settings could not be loaded.";
 			}
 		}
-		function settingsSaved(saved) {
+		function applySettings(saved) {
 			settings.value = saved;
 			store.setSettings(saved);
 			soundService.configure(saved);
+		}
+		function settingsSaved(saved) {
+			applySettings(saved);
 			closeSettings();
+		}
+		async function toggleReadVisibility() {
+			if (!settings.value || savingReadVisibility.value) return;
+			savingReadVisibility.value = true;
+			settingsError.value = null;
+			try {
+				const result = await desktopBridge.updateSettings({
+					...settings.value,
+					hide_read: !settings.value.hide_read
+				});
+				if (!result.ok) {
+					settingsError.value = result.error.message;
+					return;
+				}
+				applySettings(result.settings);
+			} catch (error) {
+				settingsError.value = error instanceof Error ? error.message : "Settings could not be saved.";
+			} finally {
+				savingReadVisibility.value = false;
+			}
 		}
 		async function synchronize() {
 			try {
@@ -10440,18 +10466,22 @@ var App_default = /* @__PURE__ */ defineComponent({
 					ref: main,
 					"aria-label": "Notifications"
 				}, [
-					createBaseVNode("div", _hoisted_27, [createBaseVNode("span", null, toDisplayString(unref(notifications).length) + " notifications", 1), createBaseVNode("button", {
+					createBaseVNode("div", _hoisted_27, [createBaseVNode("span", null, toDisplayString(unref(notifications).length) + " notifications", 1), createBaseVNode("div", _hoisted_28, [createBaseVNode("button", {
 						type: "button",
 						disabled: !connected.value || unreadIds.value.length === 0,
 						onClick: markAllRead
-					}, "Mark all read", 8, _hoisted_28)]),
+					}, "Mark all read", 8, _hoisted_29), createBaseVNode("button", {
+						type: "button",
+						disabled: !settings.value || savingReadVisibility.value,
+						onClick: toggleReadVisibility
+					}, toDisplayString(settings.value?.hide_read ? "Show read" : "Hide read"), 9, _hoisted_30)])]),
 					showNew.value ? (openBlock(), createElementBlock("button", {
 						key: 0,
 						class: "new-notifications",
 						type: "button",
 						onClick: returnToNewest
 					}, "New notifications · return to top")) : createCommentVNode("", true),
-					unref(notifications).length === 0 ? (openBlock(), createElementBlock("p", _hoisted_29, "No notifications")) : createCommentVNode("", true),
+					unref(notifications).length === 0 ? (openBlock(), createElementBlock("p", _hoisted_31, "No notifications")) : createCommentVNode("", true),
 					(openBlock(true), createElementBlock(Fragment, null, renderList(renderedNotifications.value, (notification) => {
 						return openBlock(), createBlock(NotificationCard_default, {
 							key: notification.id,

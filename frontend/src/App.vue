@@ -22,6 +22,7 @@ const windowSize = ref(50);
 const showNew = ref(false);
 const now = ref(Date.now());
 const settings = ref<ClientSettings | null>(null);
+const savingReadVisibility = ref(false);
 const settingsOpen = ref(false);
 const helpOpen = ref(false);
 const settingsError = ref<string | null>(null);
@@ -65,11 +66,33 @@ async function loadSettings(): Promise<void> {
   }
 }
 
-function settingsSaved(saved: ClientSettings): void {
+function applySettings(saved: ClientSettings): void {
   settings.value = saved;
   store.setSettings(saved);
   soundService.configure(saved);
+}
+
+function settingsSaved(saved: ClientSettings): void {
+  applySettings(saved);
   closeSettings();
+}
+
+async function toggleReadVisibility(): Promise<void> {
+  if (!settings.value || savingReadVisibility.value) return;
+  savingReadVisibility.value = true;
+  settingsError.value = null;
+  try {
+    const result = await desktopBridge.updateSettings({ ...settings.value, hide_read: !settings.value.hide_read });
+    if (!result.ok) {
+      settingsError.value = result.error.message;
+      return;
+    }
+    applySettings(result.settings);
+  } catch (error) {
+    settingsError.value = error instanceof Error ? error.message : "Settings could not be saved.";
+  } finally {
+    savingReadVisibility.value = false;
+  }
 }
 
 async function synchronize(): Promise<void> {
@@ -377,7 +400,10 @@ onBeforeUnmount(() => {
       <main ref="main" aria-label="Notifications">
         <div class="feed-toolbar" aria-label="Current view actions">
           <span>{{ notifications.length }} notifications</span>
-          <button type="button" :disabled="!connected || unreadIds.length === 0" @click="markAllRead">Mark all read</button>
+          <div class="feed-actions">
+            <button type="button" :disabled="!connected || unreadIds.length === 0" @click="markAllRead">Mark all read</button>
+            <button type="button" :disabled="!settings || savingReadVisibility" @click="toggleReadVisibility">{{ settings?.hide_read ? "Show read" : "Hide read" }}</button>
+          </div>
         </div>
         <button v-if="showNew" class="new-notifications" type="button" @click="returnToNewest">New notifications · return to top</button>
         <p v-if="notifications.length === 0" class="empty">No notifications</p>
