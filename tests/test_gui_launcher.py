@@ -13,6 +13,19 @@ from notification_hub.gui.launcher import _gtk_failure
 from notification_hub.gui.launcher import main as gui_main
 
 
+@pytest.fixture
+def mock_gtk(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "gi", SimpleNamespace(require_version=lambda *_args: None))
+    monkeypatch.setitem(
+        sys.modules,
+        "gi.repository",
+        SimpleNamespace(
+            Gdk=SimpleNamespace(set_program_class=lambda *_args: None),
+            GLib=SimpleNamespace(set_prgname=lambda *_args: None),
+        ),
+    )
+
+
 def test_gui_package_import_does_not_import_pywebview() -> None:
     result = subprocess.run(
         [
@@ -58,7 +71,7 @@ def test_gtk_initialization_error_is_actionable() -> None:
 
 
 def test_desktop_opens_without_default_config(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mock_gtk: None
 ) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     observed = []
@@ -92,7 +105,7 @@ def test_explicit_missing_desktop_config_is_an_error(
 
 
 def test_smoke_closes_only_after_bridge_reply_finishes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mock_gtk: None
 ) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     closed = threading.Event()

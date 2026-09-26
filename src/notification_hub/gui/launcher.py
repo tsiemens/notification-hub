@@ -155,7 +155,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 smoke_timer.start()
             controller.start()
             try:
-                webview.start(gui="gtk", debug=False, icon=str(icon))
+                webview.start(gui="gtk", debug=False, icon=None if args.smoke_test else str(icon))
             except Exception as exc:
                 from webview.errors import WebViewException
 
