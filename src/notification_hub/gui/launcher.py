@@ -50,8 +50,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         config, settings = load_desktop_config(config_path)
         client = HubClient(config) if config is not None else None
         try:
-            import webview
             import gi
+            import webview
 
             gi.require_version("Gdk", "3.0")
             from gi.repository import Gdk, GLib
