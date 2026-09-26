@@ -7,3 +7,4 @@ Icon=notification-hub
 Terminal=false
 Categories=Utility;Network;
 StartupNotify=true
+StartupWMClass=notification-hub

@@ -51,6 +51,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         client = HubClient(config) if config is not None else None
         try:
             import webview
+            import gi
+
+            gi.require_version("Gdk", "3.0")
+            from gi.repository import Gdk, GLib
+
+            # GTK 3 uses the program name for the Wayland app ID. Match the
+            # installed desktop file so the shell associates its window and icon.
+            GLib.set_prgname("notification-hub")
+            Gdk.set_program_class("notification-hub")
         except ImportError as exc:
             print(f"nh-client: {_gtk_failure(exc)}", file=sys.stderr)
             return 1
@@ -108,9 +117,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         on_updates_requested=inspect_smoke if args.smoke_test else None,
     )
     resource = files("notification_hub.gui").joinpath("web")
+    icon_resource = files("notification_hub.gui").joinpath("resources", "notification-hub.svg")
     try:
         with ExitStack() as stack:
             web_root = stack.enter_context(as_file(resource))
+            icon = stack.enter_context(as_file(icon_resource))
             index = web_root / "index.html"
             if not index.is_file():
                 raise FileNotFoundError(
@@ -144,7 +155,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 smoke_timer.start()
             controller.start()
             try:
-                webview.start(gui="gtk", debug=False)
+                webview.start(gui="gtk", debug=False, icon=str(icon))
             except Exception as exc:
                 from webview.errors import WebViewException
 
