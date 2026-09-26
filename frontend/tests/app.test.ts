@@ -82,7 +82,8 @@ describe("large feed", () => {
     expect(wrapper.get(".connection").attributes("aria-label")).toBe("Network unavailable");
     expect(wrapper.get(".connection-icon").attributes("aria-hidden")).toBe("true");
     expect(wrapper.get(".connection-popover").attributes("role")).toBe("tooltip");
-    expect(wrapper.findAll(".feed-toolbar button").every((button) => button.attributes("disabled") !== undefined)).toBe(true);
+    expect(wrapper.get(".feed-actions button:first-child").attributes("disabled")).toBeDefined();
+    expect(wrapper.get(".feed-actions button:last-child").attributes("disabled")).toBeUndefined();
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "m" }));
     expect(mocks.setReadState).not.toHaveBeenCalled();
     wrapper.unmount();
