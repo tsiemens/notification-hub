@@ -8851,6 +8851,7 @@ var MarkdownContent_default = /* @__PURE__ */ defineComponent({
 				ALLOWED_TAGS: [
 					"p",
 					"br",
+					"hr",
 					"strong",
 					"em",
 					"del",
@@ -8864,9 +8865,21 @@ var MarkdownContent_default = /* @__PURE__ */ defineComponent({
 					"h1",
 					"h2",
 					"h3",
-					"h4"
+					"h4",
+					"h5",
+					"h6",
+					"table",
+					"thead",
+					"tbody",
+					"tr",
+					"th",
+					"td"
 				],
-				ALLOWED_ATTR: ["href", "title"],
+				ALLOWED_ATTR: [
+					"href",
+					"title",
+					"align"
+				],
 				ALLOW_DATA_ATTR: false
 			});
 			const template = document.createElement("template");
