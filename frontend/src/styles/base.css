@@ -77,8 +77,13 @@ article h2 { margin: 0.35rem 0 0.45rem; color: inherit; font-size: 1.05rem; }
 .text-button { padding: 0; border: 0; background: transparent; color: var(--primary); text-decoration: underline; }
 .markdown-block { margin: 0.45rem 0; } .raw-toggle { font-size: 0.78rem; }
 .markdown > :first-child { margin-top: 0.3rem; } .markdown > :last-child { margin-bottom: 0.3rem; }
+.markdown { overflow-x: auto; }
 .markdown a[role="link"] { color: var(--primary); cursor: pointer; text-decoration: underline; }
 .markdown pre, .raw-source { overflow-x: auto; padding: 0.65rem; border: 1px solid var(--border-soft); background: var(--surface-subtle); color: var(--text); white-space: pre-wrap; }
+.markdown table { width: max-content; min-width: 100%; margin: 0.6rem 0; border-collapse: collapse; }
+.markdown th, .markdown td { padding: 0.4rem 0.55rem; border: 1px solid var(--border); vertical-align: top; }
+.markdown th { background: var(--surface-subtle); }
+.markdown hr { border: 0; border-top: 1px solid var(--border); }
 .details-toggle { display: flex; width: 100%; min-height: 2.5rem; align-items: center; gap: 0.35rem; margin: 0.25rem 0 0; padding: 0.25rem 0.15rem; border: 0; background: transparent; color: var(--text-muted); text-align: left; }
 .details-toggle:hover { color: var(--text); }
 .disclosure-chevron { width: 0.85rem; flex: none; font-size: 0.9rem; text-align: center; }

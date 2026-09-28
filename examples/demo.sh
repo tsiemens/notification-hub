@@ -113,6 +113,13 @@ theme = "system"
 sound = "response_required"
 hide_read = false
 raw_markdown = false
+
+[[views]]
+id = "markdown_samples"
+name = "Markdown samples"
+
+[[views.rules]]
+tag_regex = "^demo:markdown$"
 EOF
 
 cd "$repo_root"
@@ -162,7 +169,7 @@ printf '\n[1/5] Sending cards that exercise domains, priorities, tags, Markdown,
 notify send 'Release build completed' \
     --domain 'build-container-3' --sender 'ci' --priority low \
     --message '**Build 1842** completed successfully in 3m 17s.' \
-    --tag 'workspace:notification-hub' --tag 'build:release' >/dev/null
+    --tag 'workspace:notification-hub' --tag 'build:release' --tag 'demo:markdown' >/dev/null
 notify send 'Test suite needs attention' \
     --domain 'test-container-1' --sender 'pytest' --priority high \
     --message '2 tests failed; 418 passed. See [testing guidance](https://docs.pytest.org/).' \
@@ -172,17 +179,37 @@ AssertionError: expected connected
 ```
 
 Raw HTML stays inert: <script>alert("not run")</script>' \
-    --tag 'workspace:notification-hub' --tag 'task:test' >/dev/null
+    --tag 'workspace:notification-hub' --tag 'task:test' --tag 'demo:markdown' >/dev/null
 notify send 'Production latency alert' \
     --domain 'production' --sender 'monitor' --priority urgent \
     --message 'The p95 latency crossed **750 ms** for five minutes.' \
     --details '- Region: `us-west`
 - Current p95: `812 ms`
 - Runbook link is intentionally omitted for this demo.' \
-    --tag 'service:api' --tag 'alert:latency' >/dev/null
+    --tag 'service:api' --tag 'alert:latency' --tag 'demo:markdown' >/dev/null
+notify send 'Markdown rendering sampler' \
+    --domain 'demo' --sender 'markdown' --priority normal \
+    --message '### Build status
+
+| Component | Result | Duration |
+| :--- | :---: | ---: |
+| API | **Passed** | 42 s |
+| Web | *Passed* | 1m 08s |' \
+    --details '##### Additional formatting
+
+> This note is a blockquote with ~~outdated~~ updated text.
+
+---
+
+###### Follow-up
+
+1. Review the table above.
+2. Open the [project page](https://example.com/).' \
+    --tag 'demo:markdown' >/dev/null
 printf '%s\n' \
-    'In the UI: switch between domains, expand “Test suite needs attention”,' \
-    'and try marking one card read and unread.'
+    'In the UI: open the “Markdown samples” view and inspect its cards,' \
+    'including “Markdown rendering sampler”. Then switch between domains,' \
+    'expand “Test suite needs attention”, and mark one card read and unread.'
 
 printf '\n[2/5] Creating a cancelled request so terminal response state is visible.\n'
 cancelled_id=$(notify approve 'Obsolete staging deploy' \

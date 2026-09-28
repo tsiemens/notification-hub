@@ -19,6 +19,32 @@ function bridge(): DesktopBridge {
 }
 
 describe("hardened Markdown", () => {
+  it("renders GFM tables with aligned columns", () => {
+    const wrapper = mount(MarkdownContent, {
+      props: {
+        bridge: bridge(),
+        label: "message",
+        source: "| Name | Count |\n| :--- | ---: |\n| Apples | **3** |",
+      },
+    });
+
+    expect(wrapper.findAll("table thead th")).toHaveLength(2);
+    expect(wrapper.findAll("table tbody tr")).toHaveLength(1);
+    expect(wrapper.get("table thead th:first-child").attributes("align")).toBe("left");
+    expect(wrapper.get("table thead th:last-child").attributes("align")).toBe("right");
+    expect(wrapper.get("table tbody td:last-child strong").text()).toBe("3");
+  });
+
+  it("preserves lower-level headings and horizontal rules", () => {
+    const wrapper = mount(MarkdownContent, {
+      props: { bridge: bridge(), label: "message", source: "##### Small heading\n\n---\n\n###### Smaller heading" },
+    });
+
+    expect(wrapper.get("h5").text()).toBe("Small heading");
+    expect(wrapper.find("hr").exists()).toBe(true);
+    expect(wrapper.get("h6").text()).toBe("Smaller heading");
+  });
+
   it("drops raw HTML, executable attributes, images, and unsafe links", () => {
     const wrapper = mount(MarkdownContent, {
       props: {

@@ -40,8 +40,8 @@ const rendered = computed(() => {
   renderer.html = () => "";
   const parsed = marked.parse(props.source, { async: false, gfm: true, breaks: true, renderer });
   const clean = DOMPurify.sanitize(parsed, {
-    ALLOWED_TAGS: ["p", "br", "strong", "em", "del", "blockquote", "ul", "ol", "li", "code", "pre", "a", "h1", "h2", "h3", "h4"],
-    ALLOWED_ATTR: ["href", "title"],
+    ALLOWED_TAGS: ["p", "br", "hr", "strong", "em", "del", "blockquote", "ul", "ol", "li", "code", "pre", "a", "h1", "h2", "h3", "h4", "h5", "h6", "table", "thead", "tbody", "tr", "th", "td"],
+    ALLOWED_ATTR: ["href", "title", "align"],
     ALLOW_DATA_ATTR: false,
   });
   const template = document.createElement("template");
