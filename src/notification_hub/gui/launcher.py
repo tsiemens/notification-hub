@@ -26,6 +26,11 @@ def _parser() -> argparse.ArgumentParser:
         prog="nh-client", description="Notification Hub desktop client"
     )
     parser.add_argument("--config", type=Path, help="client TOML configuration path")
+    parser.add_argument(
+        "--webview-debug",
+        action="store_true",
+        help="enable pywebview debugging mode",
+    )
     parser.add_argument("--smoke-test", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--smoke-notification-id", help=argparse.SUPPRESS)
     return parser
@@ -155,7 +160,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 smoke_timer.start()
             controller.start()
             try:
-                webview.start(gui="gtk", debug=False, icon=None if args.smoke_test else str(icon))
+                webview.start(
+                    gui="gtk",
+                    debug=args.webview_debug,
+                    icon=None if args.smoke_test else str(icon),
+                )
             except Exception as exc:
                 from webview.errors import WebViewException
 

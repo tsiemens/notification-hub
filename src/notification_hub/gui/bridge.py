@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import webbrowser
 from collections.abc import Callable
 from pathlib import Path
@@ -15,6 +16,15 @@ from .settings import ClientSettingsStore, SettingsWriteError
 
 MAX_NOTIFICATION_IDS = 10_000
 MAX_RESPONSE_MESSAGE = 16 * 1024
+MAX_SOUND_BYTES = 16 * 1024 * 1024
+SOUND_MIME_TYPES = {
+    ".wav": "audio/wav",
+    ".mp3": "audio/mpeg",
+    ".ogg": "audio/ogg",
+    ".oga": "audio/ogg",
+    ".flac": "audio/flac",
+    ".m4a": "audio/mp4",
+}
 
 
 class GuiBridge:
@@ -86,29 +96,52 @@ class GuiBridge:
             return self._failure("chooser_failed", "The audio file could not be selected.", True)
 
     def resolve_sound_path(self, value: object) -> dict[str, Any]:
-        """Validate a custom sound immediately before playback and return its local URI."""
+        """Validate a custom sound and return playable audio to the webview."""
         if not isinstance(value, str) or not value or "\x00" in value:
             return self._failure("invalid_sound", "Choose a local audio file.", False)
         path = Path(value).expanduser()
         try:
             path = path.resolve(strict=True)
-            if not path.is_file() or not path.stat().st_size:
+            if not path.is_file():
                 raise OSError
-            with path.open("rb") as stream:
-                stream.read(1)
+            size = path.stat().st_size
+            if not size:
+                raise OSError
         except OSError:
             return self._failure(
                 "invalid_sound",
                 "The custom sound is missing or unreadable; the bundled sound will be used.",
                 False,
             )
-        if path.suffix.lower() not in {".wav", ".mp3", ".ogg", ".oga", ".flac", ".m4a"}:
+        mime_type = SOUND_MIME_TYPES.get(path.suffix.lower())
+        if mime_type is None:
             return self._failure(
                 "unsupported_sound",
                 "The custom sound format is unsupported; the bundled sound will be used.",
                 False,
             )
-        return {"ok": True, "path": str(path), "uri": path.as_uri()}
+        if size > MAX_SOUND_BYTES:
+            return self._failure(
+                "invalid_sound",
+                "The custom sound is too large; the bundled sound will be used.",
+                False,
+            )
+        try:
+            data = path.read_bytes()
+        except OSError:
+            return self._failure(
+                "invalid_sound",
+                "The custom sound is missing or unreadable; the bundled sound will be used.",
+                False,
+            )
+        if not data or len(data) > MAX_SOUND_BYTES:
+            return self._failure(
+                "invalid_sound",
+                "The custom sound is empty or too large; the bundled sound will be used.",
+                False,
+            )
+        uri = f"data:{mime_type};base64,{base64.b64encode(data).decode('ascii')}"
+        return {"ok": True, "path": str(path), "uri": uri}
 
     def set_read_state(self, notification_ids: object, read: object) -> dict[str, Any]:
         try:

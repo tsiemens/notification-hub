@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import uuid
 from pathlib import Path
 
@@ -167,7 +168,11 @@ def test_sound_file_selection_and_playback_path_validation(tmp_path: Path) -> No
 
     assert bridge.choose_sound_file() == {"ok": True, "path": str(audio)}
     resolved = bridge.resolve_sound_path(str(audio.parent / "." / audio.name))
-    assert resolved == {"ok": True, "path": str(audio.resolve()), "uri": audio.resolve().as_uri()}
+    assert resolved == {
+        "ok": True,
+        "path": str(audio.resolve()),
+        "uri": f"data:audio/wav;base64,{base64.b64encode(audio.read_bytes()).decode('ascii')}",
+    }
 
     missing = bridge.resolve_sound_path(str(tmp_path / "missing.wav"))
     assert missing["error"]["code"] == "invalid_sound"

@@ -113,6 +113,11 @@ async function chooseSound(key: SoundPathKey): Promise<void> {
   }
 }
 
+function clearSound(key: SoundPathKey): void {
+  draft.value[key] = "";
+  soundPathErrors.value[key] = null;
+}
+
 async function validateSoundPath(key: SoundPathKey): Promise<void> {
   soundPathErrors.value[key] = null;
   const path = draft.value[key];
@@ -168,11 +173,11 @@ async function save(): Promise<void> {
             </select>
           </label>
           <label>Response required sound file (optional)
-            <span class="path-control"><input v-model="draft.response_required_sound_path" type="text" @blur="validateSoundPath('response_required_sound_path')"><button type="button" @click="chooseSound('response_required_sound_path')">Choose…</button></span>
+            <span class="path-control"><input v-model="draft.response_required_sound_path" type="text" @blur="validateSoundPath('response_required_sound_path')"><button type="button" @click="chooseSound('response_required_sound_path')">Choose…</button><button type="button" :disabled="!draft.response_required_sound_path" @click="clearSound('response_required_sound_path')">Clear</button></span>
           </label>
           <p v-if="soundPathErrors.response_required_sound_path" class="inline-error" role="status">{{ soundPathErrors.response_required_sound_path }}</p>
           <label>Informational sound file (optional)
-            <span class="path-control"><input v-model="draft.informational_sound_path" type="text" @blur="validateSoundPath('informational_sound_path')"><button type="button" @click="chooseSound('informational_sound_path')">Choose…</button></span>
+            <span class="path-control"><input v-model="draft.informational_sound_path" type="text" @blur="validateSoundPath('informational_sound_path')"><button type="button" @click="chooseSound('informational_sound_path')">Choose…</button><button type="button" :disabled="!draft.informational_sound_path" @click="clearSound('informational_sound_path')">Clear</button></span>
           </label>
           <p v-if="soundPathErrors.informational_sound_path" class="inline-error" role="status">{{ soundPathErrors.informational_sound_path }}</p>
           <label class="checkbox-label"><input v-model="draft.hide_read" type="checkbox"> Hide read notifications</label>

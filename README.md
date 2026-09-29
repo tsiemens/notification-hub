@@ -172,6 +172,8 @@ uv sync --extra gui
 uv run nh-client --config /path/to/client.config.toml
 ```
 
+Pass `--webview-debug` to enable pywebview debugging mode while launching.
+
 The Linux runtime requires GTK and WebKitGTK libraries supplied by the host
 distribution. The launcher explicitly uses pywebview's GTK backend and does not
 fall back to a general-purpose browser.
