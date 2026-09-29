@@ -19,15 +19,23 @@ export class BrowserSoundPlayer implements SoundPlayer {
     if (!Context) return;
     const context = new Context();
     try {
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      oscillator.frequency.value = outcome === "response_required" ? 880 : 660;
-      gain.gain.setValueAtTime(0.08, context.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.14);
-      oscillator.connect(gain).connect(context.destination);
-      oscillator.start();
-      oscillator.stop(context.currentTime + 0.15);
-      await new Promise<void>((resolve) => { oscillator.onended = () => resolve(); });
+      const notes = outcome === "response_required" ? [880, 988, 1175] : [660, 880];
+      const start = context.currentTime;
+      const ended = notes.map((frequency, index) => new Promise<void>((resolve) => {
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        const noteStart = start + index * 0.25;
+        oscillator.type = "triangle";
+        oscillator.frequency.value = frequency;
+        gain.gain.setValueAtTime(0.0001, noteStart);
+        gain.gain.exponentialRampToValueAtTime(0.22, noteStart + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, noteStart + 0.32);
+        oscillator.connect(gain).connect(context.destination);
+        oscillator.onended = () => resolve();
+        oscillator.start(noteStart);
+        oscillator.stop(noteStart + 0.32);
+      }));
+      await Promise.all(ended);
     } finally {
       await context.close().catch(() => undefined);
     }

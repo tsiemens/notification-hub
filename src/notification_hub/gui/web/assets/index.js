@@ -9760,17 +9760,27 @@ var BrowserSoundPlayer = class {
 		if (!Context) return;
 		const context = new Context();
 		try {
-			const oscillator = context.createOscillator();
-			const gain = context.createGain();
-			oscillator.frequency.value = outcome === "response_required" ? 880 : 660;
-			gain.gain.setValueAtTime(.08, context.currentTime);
-			gain.gain.exponentialRampToValueAtTime(1e-4, context.currentTime + .14);
-			oscillator.connect(gain).connect(context.destination);
-			oscillator.start();
-			oscillator.stop(context.currentTime + .15);
-			await new Promise((resolve) => {
+			const notes = outcome === "response_required" ? [
+				880,
+				988,
+				1175
+			] : [660, 880];
+			const start = context.currentTime;
+			const ended = notes.map((frequency, index) => new Promise((resolve) => {
+				const oscillator = context.createOscillator();
+				const gain = context.createGain();
+				const noteStart = start + index * .25;
+				oscillator.type = "triangle";
+				oscillator.frequency.value = frequency;
+				gain.gain.setValueAtTime(1e-4, noteStart);
+				gain.gain.exponentialRampToValueAtTime(.22, noteStart + .015);
+				gain.gain.exponentialRampToValueAtTime(1e-4, noteStart + .32);
+				oscillator.connect(gain).connect(context.destination);
 				oscillator.onended = () => resolve();
-			});
+				oscillator.start(noteStart);
+				oscillator.stop(noteStart + .32);
+			}));
+			await Promise.all(ended);
 		} finally {
 			await context.close().catch(() => void 0);
 		}
