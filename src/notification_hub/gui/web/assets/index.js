@@ -9834,7 +9834,8 @@ var NotificationSoundService = class {
 				if (resolved.ok) {
 					try {
 						await this.player.playUri(resolved.uri);
-					} catch {
+					} catch (error) {
+						console.error("Custom sound playback failed", resolved.path, error);
 						this.reportError("The custom sound could not be played; the bundled sound will be used.");
 						await this.player.playBundled(outcome);
 					}

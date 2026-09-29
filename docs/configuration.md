@@ -147,7 +147,8 @@ The desktop Settings dialog edits the `[ui]` values and custom `[[views]]`.
 `theme` is `system`, `light`, or `dark`. `sound` is `never`,
 `response_required`, or `all`. `response_required_sound_path` and
 `informational_sound_path` optionally name separate local audio files. An empty
-path uses that notification type's generated sound. Existing `sound_path`
+path uses that notification type's generated sound. Custom sound files can be up
+to 16 MiB. Existing `sound_path`
 values are loaded into both fields until the settings are saved. `hide_read`
 hides read notifications, while `raw_markdown` displays
 message source instead of rendered Markdown. A custom view needs a unique
