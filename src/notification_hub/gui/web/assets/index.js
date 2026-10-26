@@ -10467,7 +10467,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 					createBaseVNode("button", {
 						"aria-current": unref(store).state.selection === "all",
 						onClick: _cache[0] || (_cache[0] = ($event) => select("all"))
-					}, [createBaseVNode("span", _hoisted_18, [_cache[3] || (_cache[3] = createBaseVNode("strong", null, "All Domains", -1)), unref(allSummary).unread_count ? (openBlock(), createElementBlock("span", {
+					}, [createBaseVNode("span", _hoisted_18, [createBaseVNode("strong", { class: normalizeClass({ "unread-title": unref(allSummary).unread_count > 0 }) }, "All Domains", 2), unref(allSummary).unread_count ? (openBlock(), createElementBlock("span", {
 						key: 0,
 						class: "unread-marker",
 						role: "img",
@@ -10480,11 +10480,11 @@ var App_default = /* @__PURE__ */ defineComponent({
 							disabled: !view.has_valid_rules,
 							title: view.has_valid_rules ? void 0 : "This view has no valid rules",
 							onClick: ($event) => select(`view:${view.id}`)
-						}, [createBaseVNode("span", _hoisted_21, [createBaseVNode("span", _hoisted_22, [_cache[4] || (_cache[4] = createBaseVNode("svg", {
+						}, [createBaseVNode("span", _hoisted_21, [createBaseVNode("span", _hoisted_22, [_cache[3] || (_cache[3] = createBaseVNode("svg", {
 							class: "view-icon",
 							viewBox: "0 0 16 16",
 							"aria-hidden": "true"
-						}, [createBaseVNode("path", { d: "M2.5 3h11l-4.25 5v3.5l-2.5 1.5V8z" })], -1)), createBaseVNode("strong", null, toDisplayString(view.name), 1)]), view.unread_count ? (openBlock(), createElementBlock("span", {
+						}, [createBaseVNode("path", { d: "M2.5 3h11l-4.25 5v3.5l-2.5 1.5V8z" })], -1)), createBaseVNode("strong", { class: normalizeClass({ "unread-title": view.unread_count > 0 }) }, toDisplayString(view.name), 3)]), view.unread_count ? (openBlock(), createElementBlock("span", {
 							key: 0,
 							class: "unread-marker",
 							role: "img",
@@ -10497,7 +10497,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 							"aria-current": unref(store).state.selection === `domain:${domain.name}`,
 							onClick: ($event) => select(`domain:${domain.name}`)
 						}, [
-							createBaseVNode("span", _hoisted_25, [createBaseVNode("strong", null, toDisplayString(domain.name), 1), domain.unread_count ? (openBlock(), createElementBlock("span", {
+							createBaseVNode("span", _hoisted_25, [createBaseVNode("strong", { class: normalizeClass({ "unread-title": domain.unread_count > 0 }) }, toDisplayString(domain.name), 3), domain.unread_count ? (openBlock(), createElementBlock("span", {
 								key: 0,
 								class: "unread-marker",
 								role: "img",

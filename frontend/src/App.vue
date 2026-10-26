@@ -369,7 +369,7 @@ onBeforeUnmount(() => {
     <div class="workspace">
       <nav aria-label="Notification views and domains">
         <button :aria-current="store.state.selection === 'all'" @click="select('all')">
-          <span class="nav-title"><strong>All Domains</strong><span v-if="allSummary.unread_count" class="unread-marker" role="img" :aria-label="unreadLabel(allSummary.unread_count)">● Unread</span></span>
+          <span class="nav-title"><strong :class="{ 'unread-title': allSummary.unread_count > 0 }">All Domains</strong><span v-if="allSummary.unread_count" class="unread-marker" role="img" :aria-label="unreadLabel(allSummary.unread_count)">● Unread</span></span>
           <span>{{ allSummary.notification_count }} notifications · {{ allSummary.unread_count }} unread · {{ allSummary.pending_response_count }} pending</span>
         </button>
         <button
@@ -385,14 +385,14 @@ onBeforeUnmount(() => {
               <svg class="view-icon" viewBox="0 0 16 16" aria-hidden="true">
                 <path d="M2.5 3h11l-4.25 5v3.5l-2.5 1.5V8z" />
               </svg>
-              <strong>{{ view.name }}</strong>
+              <strong :class="{ 'unread-title': view.unread_count > 0 }">{{ view.name }}</strong>
             </span>
             <span v-if="view.unread_count" class="unread-marker" role="img" :aria-label="unreadLabel(view.unread_count)">● Unread</span>
           </span>
           <span>{{ view.notification_count }} notifications · {{ view.unread_count }} unread · {{ view.pending_response_count }} pending</span>
         </button>
         <button v-for="domain in domains" :key="`domain:${domain.name}`" :aria-current="store.state.selection === `domain:${domain.name}`" @click="select(`domain:${domain.name}`)">
-          <span class="nav-title"><strong>{{ domain.name }}</strong><span v-if="domain.unread_count" class="unread-marker" role="img" :aria-label="unreadLabel(domain.unread_count)">● Unread</span></span>
+          <span class="nav-title"><strong :class="{ 'unread-title': domain.unread_count > 0 }">{{ domain.name }}</strong><span v-if="domain.unread_count" class="unread-marker" role="img" :aria-label="unreadLabel(domain.unread_count)">● Unread</span></span>
           <span>{{ domain.unread_count }} unread · {{ domain.pending_response_count }} pending</span>
           <small>{{ domain.latest_summary }}</small>
         </button>
