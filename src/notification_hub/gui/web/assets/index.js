@@ -4653,9 +4653,10 @@ function readSettings(value) {
 		"informational_sound_path",
 		"hide_read",
 		"raw_markdown",
+		"mark_read_on_reply",
 		"views"
 	])) invalid();
-	const { theme, sound, response_required_sound_path, informational_sound_path, hide_read, raw_markdown, views } = value;
+	const { theme, sound, response_required_sound_path, informational_sound_path, hide_read, raw_markdown, mark_read_on_reply, views } = value;
 	if (![
 		"light",
 		"dark",
@@ -4668,7 +4669,7 @@ function readSettings(value) {
 	].includes(sound)) invalid();
 	if (typeof response_required_sound_path !== "string" || response_required_sound_path.includes("\0")) invalid();
 	if (typeof informational_sound_path !== "string" || informational_sound_path.includes("\0")) invalid();
-	if (typeof hide_read !== "boolean" || typeof raw_markdown !== "boolean" || !Array.isArray(views)) invalid();
+	if (typeof hide_read !== "boolean" || typeof raw_markdown !== "boolean" || typeof mark_read_on_reply !== "boolean" || !Array.isArray(views)) invalid();
 	if (views.length > 64) invalid();
 	const ids = /* @__PURE__ */ new Set();
 	return {
@@ -4678,6 +4679,7 @@ function readSettings(value) {
 		informational_sound_path,
 		hide_read,
 		raw_markdown,
+		mark_read_on_reply,
 		views: views.map((view) => {
 			if (!isRecord(view) || typeof view.id !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(view.id)) invalid();
 			if (!hasOnly(view, [
@@ -9058,7 +9060,7 @@ var _hoisted_36$1 = {
 };
 var _hoisted_37$1 = { key: 0 };
 var _hoisted_38$1 = { key: 1 };
-var _hoisted_39 = {
+var _hoisted_39$1 = {
 	key: 6,
 	class: "inline-error",
 	role: "alert"
@@ -9319,7 +9321,7 @@ var NotificationCard_default = /* @__PURE__ */ defineComponent({
 					__props.notification.response?.message ? (openBlock(), createElementBlock("p", _hoisted_37$1, toDisplayString(__props.notification.response.message), 1)) : createCommentVNode("", true),
 					__props.notification.response ? (openBlock(), createElementBlock("small", _hoisted_38$1, "by " + toDisplayString(__props.notification.response.responded_by) + " · " + toDisplayString(__props.notification.response.responded_at), 1)) : createCommentVNode("", true)
 				])) : createCommentVNode("", true),
-				__props.error ? (openBlock(), createElementBlock("p", _hoisted_39, [createTextVNode(toDisplayString(__props.error.message), 1), __props.error.retryable ? (openBlock(), createElementBlock("span", _hoisted_40, " You can retry.")) : createCommentVNode("", true)])) : createCommentVNode("", true)
+				__props.error ? (openBlock(), createElementBlock("p", _hoisted_39$1, [createTextVNode(toDisplayString(__props.error.message), 1), __props.error.retryable ? (openBlock(), createElementBlock("span", _hoisted_40, " You can retry.")) : createCommentVNode("", true)])) : createCommentVNode("", true)
 			], 42, _hoisted_1$2);
 		};
 	}
@@ -9345,76 +9347,77 @@ var _hoisted_9$1 = {
 };
 var _hoisted_10$1 = { class: "checkbox-label" };
 var _hoisted_11$1 = { class: "checkbox-label" };
-var _hoisted_12$1 = {
+var _hoisted_12$1 = { class: "checkbox-label" };
+var _hoisted_13$1 = {
 	class: "views-editor",
 	"aria-labelledby": "views-title"
 };
-var _hoisted_13$1 = { class: "section-heading" };
-var _hoisted_14$1 = ["disabled"];
-var _hoisted_15$1 = { class: "view-heading" };
-var _hoisted_16$1 = ["onUpdate:modelValue"];
-var _hoisted_17$1 = { class: "reorder-buttons" };
-var _hoisted_18$1 = [
-	"disabled",
-	"aria-label",
-	"onClick"
-];
+var _hoisted_14$1 = { class: "section-heading" };
+var _hoisted_15$1 = ["disabled"];
+var _hoisted_16$1 = { class: "view-heading" };
+var _hoisted_17$1 = ["onUpdate:modelValue"];
+var _hoisted_18$1 = { class: "reorder-buttons" };
 var _hoisted_19$1 = [
 	"disabled",
 	"aria-label",
 	"onClick"
 ];
-var _hoisted_20$1 = ["aria-label", "onClick"];
-var _hoisted_21$1 = {
-	key: 0,
-	class: "inline-error",
-	role: "status"
-};
-var _hoisted_22$1 = {
-	key: 1,
-	class: "inline-error",
-	role: "status"
-};
-var _hoisted_23$1 = ["onUpdate:modelValue", "maxlength"];
-var _hoisted_24$1 = {
-	key: 0,
-	class: "inline-error"
-};
-var _hoisted_25$1 = ["onUpdate:modelValue", "maxlength"];
-var _hoisted_26$1 = {
-	key: 1,
-	class: "inline-error"
-};
-var _hoisted_27$1 = ["onUpdate:modelValue", "maxlength"];
-var _hoisted_28$1 = {
-	key: 2,
-	class: "inline-error"
-};
-var _hoisted_29$1 = { class: "reorder-buttons" };
-var _hoisted_30$1 = [
+var _hoisted_20$1 = [
 	"disabled",
 	"aria-label",
 	"onClick"
 ];
+var _hoisted_21$1 = ["aria-label", "onClick"];
+var _hoisted_22$1 = {
+	key: 0,
+	class: "inline-error",
+	role: "status"
+};
+var _hoisted_23$1 = {
+	key: 1,
+	class: "inline-error",
+	role: "status"
+};
+var _hoisted_24$1 = ["onUpdate:modelValue", "maxlength"];
+var _hoisted_25$1 = {
+	key: 0,
+	class: "inline-error"
+};
+var _hoisted_26$1 = ["onUpdate:modelValue", "maxlength"];
+var _hoisted_27$1 = {
+	key: 1,
+	class: "inline-error"
+};
+var _hoisted_28$1 = ["onUpdate:modelValue", "maxlength"];
+var _hoisted_29$1 = {
+	key: 2,
+	class: "inline-error"
+};
+var _hoisted_30$1 = { class: "reorder-buttons" };
 var _hoisted_31$1 = [
 	"disabled",
 	"aria-label",
 	"onClick"
 ];
-var _hoisted_32 = ["disabled", "onClick"];
+var _hoisted_32 = [
+	"disabled",
+	"aria-label",
+	"onClick"
+];
 var _hoisted_33 = ["disabled", "onClick"];
-var _hoisted_34 = {
+var _hoisted_34 = ["disabled", "onClick"];
+var _hoisted_35 = {
 	key: 0,
 	class: "empty"
 };
-var _hoisted_35 = {
+var _hoisted_36 = {
 	key: 0,
 	class: "inline-error",
 	role: "alert"
 };
-var _hoisted_36 = { class: "dialog-actions" };
-var _hoisted_37 = ["disabled"];
+var _hoisted_37 = { class: "dialog-actions" };
 var _hoisted_38 = ["disabled"];
+var _hoisted_39 = ["disabled"];
 //#endregion
 //#region src/components/SettingsDialog.vue
 var SettingsDialog_default = /* @__PURE__ */ defineComponent({
@@ -9563,7 +9566,7 @@ var SettingsDialog_default = /* @__PURE__ */ defineComponent({
 				"aria-modal": "true",
 				"aria-labelledby": "settings-title",
 				onKeydown: closeFromKeyboard
-			}, [createBaseVNode("header", _hoisted_2$1, [_cache[14] || (_cache[14] = createBaseVNode("h2", { id: "settings-title" }, "Settings", -1)), createBaseVNode("button", {
+			}, [createBaseVNode("header", _hoisted_2$1, [_cache[15] || (_cache[15] = createBaseVNode("h2", { id: "settings-title" }, "Settings", -1)), createBaseVNode("button", {
 				ref_key: "closeButton",
 				ref: closeButton,
 				type: "button",
@@ -9572,18 +9575,18 @@ var SettingsDialog_default = /* @__PURE__ */ defineComponent({
 				onClick: _cache[0] || (_cache[0] = ($event) => emit("close"))
 			}, "×", 8, _hoisted_3$1)]), createBaseVNode("form", { onSubmit: withModifiers(save, ["prevent"]) }, [
 				createBaseVNode("fieldset", null, [
-					_cache[23] || (_cache[23] = createBaseVNode("legend", null, "Presentation", -1)),
-					createBaseVNode("label", null, [_cache[16] || (_cache[16] = createTextVNode("Theme ", -1)), withDirectives(createBaseVNode("select", { "onUpdate:modelValue": _cache[1] || (_cache[1] = ($event) => draft.value.theme = $event) }, [..._cache[15] || (_cache[15] = [
+					_cache[24] || (_cache[24] = createBaseVNode("legend", null, "Presentation", -1)),
+					createBaseVNode("label", null, [_cache[17] || (_cache[17] = createTextVNode("Theme ", -1)), withDirectives(createBaseVNode("select", { "onUpdate:modelValue": _cache[1] || (_cache[1] = ($event) => draft.value.theme = $event) }, [..._cache[16] || (_cache[16] = [
 						createBaseVNode("option", { value: "system" }, "System", -1),
 						createBaseVNode("option", { value: "light" }, "Light", -1),
 						createBaseVNode("option", { value: "dark" }, "Dark", -1)
 					])], 512), [[vModelSelect, draft.value.theme]])]),
-					createBaseVNode("label", null, [_cache[18] || (_cache[18] = createTextVNode("Notification sound ", -1)), withDirectives(createBaseVNode("select", { "onUpdate:modelValue": _cache[2] || (_cache[2] = ($event) => draft.value.sound = $event) }, [..._cache[17] || (_cache[17] = [
+					createBaseVNode("label", null, [_cache[19] || (_cache[19] = createTextVNode("Notification sound ", -1)), withDirectives(createBaseVNode("select", { "onUpdate:modelValue": _cache[2] || (_cache[2] = ($event) => draft.value.sound = $event) }, [..._cache[18] || (_cache[18] = [
 						createBaseVNode("option", { value: "never" }, "Never", -1),
 						createBaseVNode("option", { value: "response_required" }, "Responses required", -1),
 						createBaseVNode("option", { value: "all" }, "All notifications", -1)
 					])], 512), [[vModelSelect, draft.value.sound]])]),
-					createBaseVNode("label", null, [_cache[19] || (_cache[19] = createTextVNode("Response required sound file (optional) ", -1)), createBaseVNode("span", _hoisted_4$1, [
+					createBaseVNode("label", null, [_cache[20] || (_cache[20] = createTextVNode("Response required sound file (optional) ", -1)), createBaseVNode("span", _hoisted_4$1, [
 						withDirectives(createBaseVNode("input", {
 							"onUpdate:modelValue": _cache[3] || (_cache[3] = ($event) => draft.value.response_required_sound_path = $event),
 							type: "text",
@@ -9600,7 +9603,7 @@ var SettingsDialog_default = /* @__PURE__ */ defineComponent({
 						}, "Clear", 8, _hoisted_5$1)
 					])]),
 					soundPathErrors.value.response_required_sound_path ? (openBlock(), createElementBlock("p", _hoisted_6$1, toDisplayString(soundPathErrors.value.response_required_sound_path), 1)) : createCommentVNode("", true),
-					createBaseVNode("label", null, [_cache[20] || (_cache[20] = createTextVNode("Informational sound file (optional) ", -1)), createBaseVNode("span", _hoisted_7$1, [
+					createBaseVNode("label", null, [_cache[21] || (_cache[21] = createTextVNode("Informational sound file (optional) ", -1)), createBaseVNode("span", _hoisted_7$1, [
 						withDirectives(createBaseVNode("input", {
 							"onUpdate:modelValue": _cache[7] || (_cache[7] = ($event) => draft.value.informational_sound_path = $event),
 							type: "text",
@@ -9620,86 +9623,90 @@ var SettingsDialog_default = /* @__PURE__ */ defineComponent({
 					createBaseVNode("label", _hoisted_10$1, [withDirectives(createBaseVNode("input", {
 						"onUpdate:modelValue": _cache[11] || (_cache[11] = ($event) => draft.value.hide_read = $event),
 						type: "checkbox"
-					}, null, 512), [[vModelCheckbox, draft.value.hide_read]]), _cache[21] || (_cache[21] = createTextVNode(" Hide read notifications", -1))]),
+					}, null, 512), [[vModelCheckbox, draft.value.hide_read]]), _cache[22] || (_cache[22] = createTextVNode(" Hide read notifications", -1))]),
 					createBaseVNode("label", _hoisted_11$1, [withDirectives(createBaseVNode("input", {
 						"onUpdate:modelValue": _cache[12] || (_cache[12] = ($event) => draft.value.raw_markdown = $event),
 						type: "checkbox"
-					}, null, 512), [[vModelCheckbox, draft.value.raw_markdown]]), _cache[22] || (_cache[22] = createTextVNode(" Show raw Markdown by default", -1))])
+					}, null, 512), [[vModelCheckbox, draft.value.raw_markdown]]), _cache[23] || (_cache[23] = createTextVNode(" Show raw Markdown by default", -1))])
 				]),
-				createBaseVNode("section", _hoisted_12$1, [
-					createBaseVNode("div", _hoisted_13$1, [_cache[24] || (_cache[24] = createBaseVNode("h3", { id: "views-title" }, "Custom views", -1)), createBaseVNode("button", {
+				createBaseVNode("fieldset", null, [_cache[26] || (_cache[26] = createBaseVNode("legend", null, "Behavior", -1)), createBaseVNode("label", _hoisted_12$1, [withDirectives(createBaseVNode("input", {
+					"onUpdate:modelValue": _cache[13] || (_cache[13] = ($event) => draft.value.mark_read_on_reply = $event),
+					type: "checkbox"
+				}, null, 512), [[vModelCheckbox, draft.value.mark_read_on_reply]]), _cache[25] || (_cache[25] = createTextVNode(" Mark notifications read after replying", -1))])]),
+				createBaseVNode("section", _hoisted_13$1, [
+					createBaseVNode("div", _hoisted_14$1, [_cache[27] || (_cache[27] = createBaseVNode("h3", { id: "views-title" }, "Custom views", -1)), createBaseVNode("button", {
 						type: "button",
 						disabled: draft.value.views.length >= unref(64),
 						onClick: addView
-					}, "Add view", 8, _hoisted_14$1)]),
+					}, "Add view", 8, _hoisted_15$1)]),
 					(openBlock(true), createElementBlock(Fragment, null, renderList(draft.value.views, (view, viewIndex) => {
 						return openBlock(), createElementBlock("article", {
 							key: view.id,
 							class: "view-editor"
 						}, [
-							createBaseVNode("div", _hoisted_15$1, [createBaseVNode("label", null, [_cache[25] || (_cache[25] = createTextVNode("View name ", -1)), withDirectives(createBaseVNode("input", {
+							createBaseVNode("div", _hoisted_16$1, [createBaseVNode("label", null, [_cache[28] || (_cache[28] = createTextVNode("View name ", -1)), withDirectives(createBaseVNode("input", {
 								"onUpdate:modelValue": ($event) => view.name = $event,
 								maxlength: "80",
 								required: ""
-							}, null, 8, _hoisted_16$1), [[vModelText, view.name]])]), createBaseVNode("div", _hoisted_17$1, [
+							}, null, 8, _hoisted_17$1), [[vModelText, view.name]])]), createBaseVNode("div", _hoisted_18$1, [
 								createBaseVNode("button", {
 									type: "button",
 									disabled: viewIndex === 0,
 									"aria-label": `Move ${view.name} up`,
 									onClick: ($event) => move(draft.value.views, viewIndex, -1)
-								}, "↑", 8, _hoisted_18$1),
+								}, "↑", 8, _hoisted_19$1),
 								createBaseVNode("button", {
 									type: "button",
 									disabled: viewIndex === draft.value.views.length - 1,
 									"aria-label": `Move ${view.name} down`,
 									onClick: ($event) => move(draft.value.views, viewIndex, 1)
-								}, "↓", 8, _hoisted_19$1),
+								}, "↓", 8, _hoisted_20$1),
 								createBaseVNode("button", {
 									type: "button",
 									"aria-label": `Remove ${view.name}`,
 									onClick: ($event) => draft.value.views.splice(viewIndex, 1)
-								}, "Remove", 8, _hoisted_20$1)
+								}, "Remove", 8, _hoisted_21$1)
 							])]),
-							validRuleCount(view.rules) === 0 ? (openBlock(), createElementBlock("p", _hoisted_21$1, "This view has no valid rules and will not be available for filtering.")) : validRuleCount(view.rules) < view.rules.length ? (openBlock(), createElementBlock("p", _hoisted_22$1, toDisplayString(view.rules.length - validRuleCount(view.rules)) + " invalid rule(s) will be omitted from filtering.", 1)) : createCommentVNode("", true),
+							validRuleCount(view.rules) === 0 ? (openBlock(), createElementBlock("p", _hoisted_22$1, "This view has no valid rules and will not be available for filtering.")) : validRuleCount(view.rules) < view.rules.length ? (openBlock(), createElementBlock("p", _hoisted_23$1, toDisplayString(view.rules.length - validRuleCount(view.rules)) + " invalid rule(s) will be omitted from filtering.", 1)) : createCommentVNode("", true),
 							(openBlock(true), createElementBlock(Fragment, null, renderList(view.rules, (rule, ruleIndex) => {
 								return openBlock(), createElementBlock("fieldset", {
 									key: ruleIndex,
 									class: "rule-editor"
 								}, [
 									createBaseVNode("legend", null, "Rule " + toDisplayString(ruleIndex + 1), 1),
-									createBaseVNode("label", null, [_cache[26] || (_cache[26] = createTextVNode("Domain expression ", -1)), withDirectives(createBaseVNode("input", {
+									createBaseVNode("label", null, [_cache[29] || (_cache[29] = createTextVNode("Domain expression ", -1)), withDirectives(createBaseVNode("input", {
 										"onUpdate:modelValue": ($event) => rule.domain_regex = $event,
 										maxlength: unref(MAX_VIEW_REGEX_LENGTH) + 1
-									}, null, 8, _hoisted_23$1), [[vModelText, rule.domain_regex]])]),
-									regexError(rule, "domain_regex") ? (openBlock(), createElementBlock("p", _hoisted_24$1, toDisplayString(regexError(rule, "domain_regex")), 1)) : createCommentVNode("", true),
-									createBaseVNode("label", null, [_cache[27] || (_cache[27] = createTextVNode("Sender expression ", -1)), withDirectives(createBaseVNode("input", {
+									}, null, 8, _hoisted_24$1), [[vModelText, rule.domain_regex]])]),
+									regexError(rule, "domain_regex") ? (openBlock(), createElementBlock("p", _hoisted_25$1, toDisplayString(regexError(rule, "domain_regex")), 1)) : createCommentVNode("", true),
+									createBaseVNode("label", null, [_cache[30] || (_cache[30] = createTextVNode("Sender expression ", -1)), withDirectives(createBaseVNode("input", {
 										"onUpdate:modelValue": ($event) => rule.sender_regex = $event,
 										maxlength: unref(MAX_VIEW_REGEX_LENGTH) + 1
-									}, null, 8, _hoisted_25$1), [[vModelText, rule.sender_regex]])]),
-									regexError(rule, "sender_regex") ? (openBlock(), createElementBlock("p", _hoisted_26$1, toDisplayString(regexError(rule, "sender_regex")), 1)) : createCommentVNode("", true),
-									createBaseVNode("label", null, [_cache[28] || (_cache[28] = createTextVNode("Tag expression ", -1)), withDirectives(createBaseVNode("input", {
+									}, null, 8, _hoisted_26$1), [[vModelText, rule.sender_regex]])]),
+									regexError(rule, "sender_regex") ? (openBlock(), createElementBlock("p", _hoisted_27$1, toDisplayString(regexError(rule, "sender_regex")), 1)) : createCommentVNode("", true),
+									createBaseVNode("label", null, [_cache[31] || (_cache[31] = createTextVNode("Tag expression ", -1)), withDirectives(createBaseVNode("input", {
 										"onUpdate:modelValue": ($event) => rule.tag_regex = $event,
 										maxlength: unref(MAX_VIEW_REGEX_LENGTH) + 1
-									}, null, 8, _hoisted_27$1), [[vModelText, rule.tag_regex]])]),
-									regexError(rule, "tag_regex") ? (openBlock(), createElementBlock("p", _hoisted_28$1, toDisplayString(regexError(rule, "tag_regex")), 1)) : createCommentVNode("", true),
-									createBaseVNode("div", _hoisted_29$1, [
+									}, null, 8, _hoisted_28$1), [[vModelText, rule.tag_regex]])]),
+									regexError(rule, "tag_regex") ? (openBlock(), createElementBlock("p", _hoisted_29$1, toDisplayString(regexError(rule, "tag_regex")), 1)) : createCommentVNode("", true),
+									createBaseVNode("div", _hoisted_30$1, [
 										createBaseVNode("button", {
 											type: "button",
 											disabled: ruleIndex === 0,
 											"aria-label": `Move rule ${ruleIndex + 1} up`,
 											onClick: ($event) => move(view.rules, ruleIndex, -1)
-										}, "↑", 8, _hoisted_30$1),
+										}, "↑", 8, _hoisted_31$1),
 										createBaseVNode("button", {
 											type: "button",
 											disabled: ruleIndex === view.rules.length - 1,
 											"aria-label": `Move rule ${ruleIndex + 1} down`,
 											onClick: ($event) => move(view.rules, ruleIndex, 1)
-										}, "↓", 8, _hoisted_31$1),
+										}, "↓", 8, _hoisted_32),
 										createBaseVNode("button", {
 											type: "button",
 											disabled: view.rules.length === 1,
 											onClick: ($event) => removeRule(viewIndex, ruleIndex)
-										}, "Remove rule", 8, _hoisted_32)
+										}, "Remove rule", 8, _hoisted_33)
 									])
 								]);
 							}), 128)),
@@ -9707,20 +9714,20 @@ var SettingsDialog_default = /* @__PURE__ */ defineComponent({
 								type: "button",
 								disabled: view.rules.length >= unref(32),
 								onClick: ($event) => addRule(viewIndex)
-							}, "Add rule", 8, _hoisted_33)
+							}, "Add rule", 8, _hoisted_34)
 						]);
 					}), 128)),
-					!draft.value.views.length ? (openBlock(), createElementBlock("p", _hoisted_34, "No custom views")) : createCommentVNode("", true)
+					!draft.value.views.length ? (openBlock(), createElementBlock("p", _hoisted_35, "No custom views")) : createCommentVNode("", true)
 				]),
-				error.value ? (openBlock(), createElementBlock("p", _hoisted_35, toDisplayString(error.value), 1)) : createCommentVNode("", true),
-				createBaseVNode("div", _hoisted_36, [createBaseVNode("button", {
+				error.value ? (openBlock(), createElementBlock("p", _hoisted_36, toDisplayString(error.value), 1)) : createCommentVNode("", true),
+				createBaseVNode("div", _hoisted_37, [createBaseVNode("button", {
 					type: "button",
 					disabled: saving.value,
-					onClick: _cache[13] || (_cache[13] = ($event) => emit("close"))
-				}, "Cancel", 8, _hoisted_37), createBaseVNode("button", {
+					onClick: _cache[14] || (_cache[14] = ($event) => emit("close"))
+				}, "Cancel", 8, _hoisted_38), createBaseVNode("button", {
 					type: "submit",
 					disabled: saving.value
-				}, toDisplayString(saving.value ? "Saving…" : "Save settings"), 9, _hoisted_38)])
+				}, toDisplayString(saving.value ? "Saving…" : "Save settings"), 9, _hoisted_39)])
 			], 32)], 32)]);
 		};
 	}
@@ -10375,7 +10382,10 @@ var App_default = /* @__PURE__ */ defineComponent({
 			const ids = [notification.id];
 			if (!store.beginMutation(ids)) return;
 			try {
-				store.finishMutation(ids, await desktopBridge.respond(notification.id, option.id, message));
+				const markRead = settings.value?.mark_read_on_reply ?? true;
+				const result = await desktopBridge.respond(notification.id, option.id, message);
+				store.finishMutation(ids, result);
+				if (result.ok && markRead && notification.read_at === null) await setRead(notification, true);
 			} catch (error) {
 				store.failMutation(ids, error);
 			}

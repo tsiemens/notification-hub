@@ -11,7 +11,7 @@ const original: ClientSettings = {
   response_required_sound_path: "",
   informational_sound_path: "",
   hide_read: false,
-  raw_markdown: false,
+  raw_markdown: false, mark_read_on_reply: true,
   views: [{ id: "ops", name: "Operations", rules: [{ domain_regex: "^ops" }] }],
 };
 
@@ -32,6 +32,7 @@ function bridge(updateSettings = vi.fn()): DesktopBridge {
 describe("settings contract", () => {
   it("strictly validates settings response values", () => {
     expect(readSettingsResult({ ok: true, settings: original })).toEqual({ ok: true, settings: original });
+    expect(() => readSettingsResult({ ok: true, settings: { ...original, mark_read_on_reply: "true" } })).toThrow("invalid settings data");
     expect(() => readSettingsResult({ ok: true, settings: { ...original, hide_read: 0 } })).toThrow("invalid settings data");
     expect(() => readSettingsResult({ ok: true, settings: { ...original, private_key_file: "/secret" } })).toThrow("invalid settings data");
     expect(() => readSettingsResult({ ok: true, settings: { ...original, views: [{ ...original.views[0], rules: [{}] }] } })).toThrow("invalid settings data");
@@ -68,6 +69,17 @@ describe("settings contract", () => {
 
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ theme: "dark" }));
     expect(wrapper.emitted("saved")?.[0]).toEqual([canonical]);
+  });
+
+  it("saves the reply preference from the Behavior section", async () => {
+    const update = vi.fn(async (settings: ClientSettings) => ({ ok: true as const, settings }));
+    const wrapper = mount(SettingsDialog, { props: { settings: original, bridge: bridge(update) } });
+    const behavior = wrapper.findAll("fieldset").find((section) => section.find("legend").text() === "Behavior")!;
+    expect((behavior.get("input").element as HTMLInputElement).checked).toBe(true);
+    await behavior.get("input").setValue(false);
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ mark_read_on_reply: false }));
   });
 
   it("shows a rejected save and leaves the dialog open", async () => {

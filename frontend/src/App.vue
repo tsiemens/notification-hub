@@ -264,7 +264,12 @@ async function respond(notification: Notification, option: ResponseOption, messa
   const ids = [notification.id];
   if (!store.beginMutation(ids)) return;
   try {
-    store.finishMutation(ids, await desktopBridge.respond(notification.id, option.id, message));
+    const markRead = settings.value?.mark_read_on_reply ?? true;
+    const result = await desktopBridge.respond(notification.id, option.id, message);
+    store.finishMutation(ids, result);
+    if (result.ok && markRead && notification.read_at === null) {
+      await setRead(notification, true);
+    }
   } catch (error) {
     store.failMutation(ids, error);
   }

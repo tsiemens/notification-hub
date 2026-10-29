@@ -10,7 +10,7 @@ described below.
 
 The desktop client can open without its default config file. It displays
 "No server is configured" until you add the client `[server]` and `[auth]`
-tables and restart it. Desktop presentation settings can be saved before the
+tables and restart it. Desktop client settings can be saved before the
 connection is configured. An explicit `nh-client --config PATH` still requires
 that file to exist. `nh-client-cli` always requires a complete client config.
 
@@ -124,6 +124,7 @@ response_required_sound_path = ""
 informational_sound_path = ""
 hide_read = false
 raw_markdown = false
+mark_read_on_reply = true
 
 [[views]]
 id = "builds"
@@ -159,4 +160,8 @@ supports up to 64 custom views, 32 rules per view, and 1024 characters per
 regular expression.
 
 The inspection command `nh-client-cli` shares the client file but does not
-use the desktop presentation settings.
+use the desktop client settings.
+
+The Behavior setting `mark_read_on_reply` marks a notification read after a successful
+reply from the desktop client. It defaults to `true`; set it to `false` to keep
+read state unchanged when replying.

@@ -24,6 +24,7 @@ export interface ClientSettings {
   informational_sound_path: string;
   hide_read: boolean;
   raw_markdown: boolean;
+  mark_read_on_reply: boolean;
   views: CustomView[];
 }
 
@@ -68,13 +69,13 @@ function readRule(value: unknown): ViewRule {
 
 export function readSettings(value: unknown): ClientSettings {
   if (!isRecord(value)) invalid();
-  if (!hasOnly(value, ["theme", "sound", "response_required_sound_path", "informational_sound_path", "hide_read", "raw_markdown", "views"])) invalid();
-  const { theme, sound, response_required_sound_path, informational_sound_path, hide_read, raw_markdown, views } = value;
+  if (!hasOnly(value, ["theme", "sound", "response_required_sound_path", "informational_sound_path", "hide_read", "raw_markdown", "mark_read_on_reply", "views"])) invalid();
+  const { theme, sound, response_required_sound_path, informational_sound_path, hide_read, raw_markdown, mark_read_on_reply, views } = value;
   if (!(["light", "dark", "system"] as unknown[]).includes(theme)) invalid();
   if (!(["never", "response_required", "all"] as unknown[]).includes(sound)) invalid();
   if (typeof response_required_sound_path !== "string" || response_required_sound_path.includes("\0")) invalid();
   if (typeof informational_sound_path !== "string" || informational_sound_path.includes("\0")) invalid();
-  if (typeof hide_read !== "boolean" || typeof raw_markdown !== "boolean" || !Array.isArray(views)) invalid();
+  if (typeof hide_read !== "boolean" || typeof raw_markdown !== "boolean" || typeof mark_read_on_reply !== "boolean" || !Array.isArray(views)) invalid();
   if (views.length > MAX_CUSTOM_VIEWS) invalid();
   const ids = new Set<string>();
   const parsedViews = views.map((view): CustomView => {
@@ -86,7 +87,7 @@ export function readSettings(value: unknown): ClientSettings {
     if (!view.rules.length || view.rules.length > MAX_VIEW_RULES) invalid();
     return { id: view.id, name: view.name, rules: view.rules.map(readRule) };
   });
-  return { theme: theme as Theme, sound: sound as SoundPolicy, response_required_sound_path, informational_sound_path, hide_read, raw_markdown, views: parsedViews };
+  return { theme: theme as Theme, sound: sound as SoundPolicy, response_required_sound_path, informational_sound_path, hide_read, raw_markdown, mark_read_on_reply, views: parsedViews };
 }
 
 export function readSettingsResult(value: unknown): SettingsResult {

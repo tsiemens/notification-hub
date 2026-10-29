@@ -39,6 +39,7 @@ def _serialize(settings: ClientSettings) -> str:
         f"informational_sound_path = {_toml_string(settings.informational_sound_path)}",
         f"hide_read = {str(settings.hide_read).lower()}",
         f"raw_markdown = {str(settings.raw_markdown).lower()}",
+        f"mark_read_on_reply = {str(settings.mark_read_on_reply).lower()}",
     ]
     for view in settings.views:
         lines.extend(

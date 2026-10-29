@@ -44,6 +44,7 @@ def _settings() -> dict[str, object]:
         "informational_sound_path": "",
         "hide_read": True,
         "raw_markdown": True,
+        "mark_read_on_reply": False,
         "views": [
             {
                 "id": "quoted",
@@ -134,3 +135,18 @@ def test_settings_can_be_saved_before_server_is_configured(tmp_path: Path) -> No
     assert saved == store.get()
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert ClientSettingsStore(path).get() == saved
+
+
+def test_mark_read_on_reply_defaults_to_true_for_existing_configs(tmp_path: Path) -> None:
+    path = tmp_path / "client.toml"
+    _write_config(path)
+    assert ClientSettingsStore(path).get().mark_read_on_reply is True
+
+
+def test_mark_read_on_reply_requires_boolean(tmp_path: Path) -> None:
+    path = tmp_path / "client.toml"
+    _write_config(path)
+    value = _settings()
+    value["mark_read_on_reply"] = "true"
+    with pytest.raises(ConfigurationError):
+        ClientSettingsStore(path).update(value)

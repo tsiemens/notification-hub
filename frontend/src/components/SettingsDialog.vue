@@ -184,6 +184,11 @@ async function save(): Promise<void> {
           <label class="checkbox-label"><input v-model="draft.raw_markdown" type="checkbox"> Show raw Markdown by default</label>
         </fieldset>
 
+        <fieldset>
+          <legend>Behavior</legend>
+          <label class="checkbox-label"><input v-model="draft.mark_read_on_reply" type="checkbox"> Mark notifications read after replying</label>
+        </fieldset>
+
         <section class="views-editor" aria-labelledby="views-title">
           <div class="section-heading"><h3 id="views-title">Custom views</h3><button type="button" :disabled="draft.views.length >= MAX_CUSTOM_VIEWS" @click="addView">Add view</button></div>
           <article v-for="(view, viewIndex) in draft.views" :key="view.id" class="view-editor">

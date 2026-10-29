@@ -185,6 +185,7 @@ class ClientConfig:
     sound: str = "response_required"
     hide_read: bool = False
     raw_markdown: bool = False
+    mark_read_on_reply: bool = True
     views: tuple[CustomView, ...] = ()
     response_required_sound_path: str = ""
     informational_sound_path: str = ""
@@ -196,6 +197,7 @@ class ClientConfig:
             sound=self.sound,
             hide_read=self.hide_read,
             raw_markdown=self.raw_markdown,
+            mark_read_on_reply=self.mark_read_on_reply,
             views=self.views,
             response_required_sound_path=self.response_required_sound_path,
             informational_sound_path=self.informational_sound_path,
@@ -208,6 +210,7 @@ class ClientSettings:
     sound: str = "response_required"
     hide_read: bool = False
     raw_markdown: bool = False
+    mark_read_on_reply: bool = True
     views: tuple[CustomView, ...] = ()
     response_required_sound_path: str = ""
     informational_sound_path: str = ""
@@ -220,6 +223,7 @@ class ClientSettings:
             "informational_sound_path": self.informational_sound_path,
             "hide_read": self.hide_read,
             "raw_markdown": self.raw_markdown,
+            "mark_read_on_reply": self.mark_read_on_reply,
             "views": [
                 {
                     "id": view.id,
@@ -401,6 +405,7 @@ def _client_settings(data: dict[str, Any]) -> ClientSettings:
             "informational_sound_path",
             "hide_read",
             "raw_markdown",
+            "mark_read_on_reply",
         },
         "ui",
     )
@@ -476,6 +481,7 @@ def _client_settings(data: dict[str, Any]) -> ClientSettings:
         sound=sound,
         hide_read=_boolean(ui.get("hide_read", False), "ui.hide_read"),
         raw_markdown=_boolean(ui.get("raw_markdown", False), "ui.raw_markdown"),
+        mark_read_on_reply=_boolean(ui.get("mark_read_on_reply", True), "ui.mark_read_on_reply"),
         views=tuple(views),
         response_required_sound_path=response_required_sound_path,
         informational_sound_path=informational_sound_path,
@@ -483,7 +489,7 @@ def _client_settings(data: dict[str, Any]) -> ClientSettings:
 
 
 def parse_client_settings(value: object) -> ClientSettings:
-    """Validate the bridge-visible presentation settings object."""
+    """Validate the bridge-visible client settings object."""
     if not isinstance(value, dict):
         raise ConfigurationError("settings must be an object")
     _only(
@@ -495,6 +501,7 @@ def parse_client_settings(value: object) -> ClientSettings:
             "informational_sound_path",
             "hide_read",
             "raw_markdown",
+            "mark_read_on_reply",
             "views",
         },
         "settings",
@@ -506,6 +513,7 @@ def parse_client_settings(value: object) -> ClientSettings:
         "informational_sound_path",
         "hide_read",
         "raw_markdown",
+        "mark_read_on_reply",
         "views",
     } - set(value)
     if missing:
@@ -521,6 +529,7 @@ def parse_client_settings(value: object) -> ClientSettings:
                     "informational_sound_path",
                     "hide_read",
                     "raw_markdown",
+                    "mark_read_on_reply",
                 )
             },
             "views": value["views"],
@@ -551,6 +560,7 @@ def load_client_config(path: Path | None = None) -> ClientConfig:
         sound=settings.sound,
         hide_read=settings.hide_read,
         raw_markdown=settings.raw_markdown,
+        mark_read_on_reply=settings.mark_read_on_reply,
         views=settings.views,
         response_required_sound_path=settings.response_required_sound_path,
         informational_sound_path=settings.informational_sound_path,

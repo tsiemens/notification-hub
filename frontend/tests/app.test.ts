@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => {
   }));
   const setReadState = vi.fn(async (ids: string[]) => ({ ok: true as const, notifications: ids.map((id) => ({ ...items[Number(id)], read_at: "2026-01-02T00:00:00.000Z", version: 2 })) }));
   const respond = vi.fn();
-  const getSettings = vi.fn(async (): Promise<ClientSettings> => ({ theme: "system", sound: "response_required", response_required_sound_path: "", informational_sound_path: "", hide_read: false, raw_markdown: false, views: [] }));
+  const getSettings = vi.fn(async (): Promise<ClientSettings> => ({ theme: "system", sound: "response_required", response_required_sound_path: "", informational_sound_path: "", hide_read: false, raw_markdown: false, mark_read_on_reply: true, views: [] }));
   const getInitialState = vi.fn(async (): Promise<InitialState> => ({ revision: 1, connection: { state: "connected", message: null }, snapshot: {
     sequence: 1,
     domains: [{ name: "large", last_activity_at: items[119].created_at, notification_count: 120, unread_count: 120, pending_response_count: 0, latest_summary: "Notice 119" }],
@@ -126,7 +126,7 @@ describe("large feed", () => {
       },
     });
     mocks.getSettings.mockResolvedValueOnce({
-      theme: "system", sound: "never", response_required_sound_path: "", informational_sound_path: "", hide_read: false, raw_markdown: false,
+      theme: "system", sound: "never", response_required_sound_path: "", informational_sound_path: "", hide_read: false, raw_markdown: false, mark_read_on_reply: true,
       views: [{ id: "tests", name: "Test sender", rules: [{ sender_regex: "^TESTS$" }] }],
     });
     vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -311,6 +311,42 @@ describe("large feed", () => {
     await flushPromises();
     expect(wrapper.find(".keyboard-help-dialog").exists()).toBe(false);
     expect(document.activeElement).toBe(card.element);
+    wrapper.unmount();
+  });
+});
+
+describe("mark read after replying", () => {
+  it.each([true, false])("respects the preference %s after a successful reply", async (enabled) => {
+    mocks.getSettings.mockResolvedValueOnce({
+      theme: "system", sound: "never", response_required_sound_path: "",
+      informational_sound_path: "", hide_read: false, raw_markdown: false,
+      mark_read_on_reply: enabled, views: [],
+    });
+    const notification = { ...mocks.items[119], response_state: "answered" as const, version: 2 };
+    mocks.respond.mockResolvedValueOnce({ ok: true, notification });
+    const wrapper = mount(App);
+    await flushPromises();
+    wrapper.findComponent({ name: "NotificationCard" }).vm.$emit(
+      "respond", mocks.items[119], { id: "yes" }, null,
+    );
+    await flushPromises();
+    expect(mocks.respond).toHaveBeenCalledWith("119", "yes", null);
+    if (enabled) expect(mocks.setReadState).toHaveBeenCalledWith(["119"], true);
+    else expect(mocks.setReadState).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it("keeps a notification unread when the reply fails", async () => {
+    mocks.respond.mockResolvedValueOnce({
+      ok: false, error: { code: "failed", message: "Failed", retryable: true },
+    });
+    const wrapper = mount(App);
+    await flushPromises();
+    wrapper.findComponent({ name: "NotificationCard" }).vm.$emit(
+      "respond", mocks.items[119], { id: "yes" }, null,
+    );
+    await flushPromises();
+    expect(mocks.setReadState).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 });

@@ -8,7 +8,7 @@ let settings: ClientSettings = {
   response_required_sound_path: "",
   informational_sound_path: "",
   hide_read: false,
-  raw_markdown: false,
+  raw_markdown: false, mark_read_on_reply: true,
   views: [{ id: "development", name: "Development", rules: [{ tag_regex: "^development$" }] }],
 };
 
