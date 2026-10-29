@@ -28,16 +28,15 @@ consequential actions.
 
 ## Installation
 
-For the server, notifier, and headless inspection client, install the base
-package in an isolated environment:
+Install the server, notifier, and headless inspection client from GitHub in an
+isolated environment:
 
 ```sh
-uv tool install notification-hub
+uv tool install 'notification-hub @ git+https://github.com/tsiemens/notification-hub.git'
 ```
 
 This installs `nh-server`, `nh-notifier`, `nh-client-cli`, `nh-client`, and
-`nh-desktop-installer`. An editable install for development requires keeping
-the checkout in place.
+`nh-desktop-installer`.
 
 The desktop client only supports Linux right now. On Ubuntu 24.04 or 26.04,
 install the base tool first. The desktop installer then installs the bundled
@@ -46,19 +45,11 @@ entry and icon. Install the GUI extra after its native dependencies are present:
 
 ```sh
 nh-desktop-installer install
-uv tool install --force 'notification-hub[gui]'
+uv tool install --force 'notification-hub[gui] @ git+https://github.com/tsiemens/notification-hub.git'
 ```
 
-For an editable install, run these commands from the repository root instead:
-
-```sh
-uv tool install --force --editable .
-nh-desktop-installer install
-uv tool install --force --editable '.[gui]'
-```
-
-`--force` replaces an existing base or editable tool install so that
-`nh-client` runs with the `gui` extra.
+`--force` replaces the base tool install so that `nh-client` runs with the
+`gui` extra.
 
 The project requires Python 3.12 or newer and uses GTK 3 with the WebKitGTK 4.1
 API. The Debian package declares the GTK/WebKitGTK runtime libraries and the
@@ -73,15 +64,6 @@ The wheel includes freedesktop metadata, but uv does not install shared desktop
 data or run a post-install hook. `nh-desktop-installer install` registers the
 desktop entry and icon for the current user.
 
-For an install directly from a Git repository, use the same sequence (replace
-the example URL with the repository URL):
-
-```sh
-uv tool install 'notification-hub @ git+https://github.com/tsiemens/notification-hub.git'
-nh-desktop-installer install
-uv tool install --force 'notification-hub[gui] @ git+https://github.com/tsiemens/notification-hub.git'
-```
-
 Remove the integration and its apt dependency package with
 `nh-desktop-installer uninstall` before uninstalling the uv tool. APT also
 removes dependencies it considers no longer needed. If uv's tool
@@ -94,6 +76,22 @@ command if you move that directory.
 
 See [Configuration](docs/configuration.md) for setup examples and all TOML
 settings for the server, notifier, and client.
+
+### Installing from a cloned repository
+
+For an editable install, run these commands from the repository root. The
+checkout must remain in place for the installed tool to work.
+
+```sh
+uv tool install --force --editable .
+```
+
+For the desktop client, install its native dependencies and the GUI extra:
+
+```sh
+nh-desktop-installer install
+uv tool install --force --editable '.[gui]'
+```
 
 For development, also create the repository-local environment with the test
 and lint dependencies:
