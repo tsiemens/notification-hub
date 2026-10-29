@@ -118,6 +118,37 @@ class FakeClient:
         return self.outcome
 
 
+def test_send_help_explains_response_message_modes(capsys) -> None:
+    with pytest.raises(SystemExit) as caught:
+        _parser().parse_args(["send", "--help"])
+
+    assert caught.value.code == 0
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert "none (default; no response message)" in help_text
+    assert "optional (message allowed)" in help_text
+    assert "required (nonempty message required)" in help_text
+
+
+def test_invalid_message_mode_lists_allowed_values() -> None:
+    args = _parser().parse_args(
+        ["send", "Deploy", "--response-option", "go", "Proceed", "invalid"]
+    )
+    client = FakeClient()
+    stderr = StringIO()
+    with pytest.raises(ValueError) as caught:
+        run(
+            args,
+            NotifierConfig(server_config()),
+            stdout=StringIO(),
+            stderr=stderr,
+            client=client,  # type: ignore[arg-type]
+        )
+
+    assert "invalid response option message mode: invalid" in str(caught.value)
+    assert "choose from: none, optional, required" in str(caught.value)
+    assert client.created is None
+
+
 def test_send_is_default_and_builds_response_options() -> None:
     args = _parser().parse_args(
         _default_command(

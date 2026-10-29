@@ -55,7 +55,11 @@ def _parser() -> argparse.ArgumentParser:
         nargs="+",
         metavar="FIELD",
         default=[],
-        help="ID LABEL [MESSAGE_MODE [APPEARANCE]]; repeat for each choice",
+        help=(
+            "ID LABEL [MESSAGE_MODE [APPEARANCE]]; repeat for each choice. "
+            "MESSAGE_MODE: none (default; no response message), optional (message allowed), "
+            "required (nonempty message required). APPEARANCE: default (default), primary, danger"
+        ),
     )
     send.add_argument("--wait", action="store_true", help="wait for a terminal outcome")
     _add_wait_arguments(send)
@@ -151,7 +155,10 @@ def _response_options(values: list[list[str]]) -> list[dict[str, str]]:
         message_mode = value[2] if len(value) >= 3 else MessageMode.NONE.value
         appearance = value[3] if len(value) == 4 else Appearance.DEFAULT.value
         if message_mode not in {item.value for item in MessageMode}:
-            raise ValueError(f"invalid response option message mode: {message_mode}")
+            choices = ", ".join(item.value for item in MessageMode)
+            raise ValueError(
+                f"invalid response option message mode: {message_mode}; choose from: {choices}"
+            )
         if appearance not in {item.value for item in Appearance}:
             raise ValueError(f"invalid response option appearance: {appearance}")
         options.append(
