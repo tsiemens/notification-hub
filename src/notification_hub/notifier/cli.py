@@ -67,6 +67,11 @@ def _parser() -> argparse.ArgumentParser:
     approve = subparsers.add_parser("approve", help="request approval and wait for it")
     _add_create_arguments(approve)
     approve.add_argument(
+        "--request-rejection-reason",
+        action="store_true",
+        help="allow an optional reason when denying approval",
+    )
+    approve.add_argument(
         "--wait",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -195,7 +200,7 @@ def _notification(
             {
                 "id": "deny",
                 "label": "Deny",
-                "message_mode": "optional",
+                "message_mode": "optional" if args.request_rejection_reason else "none",
                 "appearance": "danger",
             },
         ]

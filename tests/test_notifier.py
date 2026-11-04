@@ -130,9 +130,7 @@ def test_send_help_explains_response_message_modes(capsys) -> None:
 
 
 def test_invalid_message_mode_lists_allowed_values() -> None:
-    args = _parser().parse_args(
-        ["send", "Deploy", "--response-option", "go", "Proceed", "invalid"]
-    )
+    args = _parser().parse_args(["send", "Deploy", "--response-option", "go", "Proceed", "invalid"])
     client = FakeClient()
     stderr = StringIO()
     with pytest.raises(ValueError) as caught:
@@ -207,3 +205,23 @@ def test_approve_denial_is_fail_closed() -> None:
     assert status == 2
     assert stdout.getvalue() == "unsafe\n"
     assert [item["id"] for item in client.created["response_options"]] == ["approve", "deny"]
+
+
+@pytest.mark.parametrize(
+    ("extra_args", "expected_mode"),
+    [([], "none"), (["--request-rejection-reason"], "optional")],
+)
+def test_approve_rejection_reason_is_opt_in(extra_args: list[str], expected_mode: str) -> None:
+    args = _parser().parse_args(
+        ["approve", "Deploy?", "--domain", "deploy", "--no-wait", *extra_args]
+    )
+    client = FakeClient()
+    run(
+        args,
+        NotifierConfig(server_config()),
+        stdout=StringIO(),
+        stderr=StringIO(),
+        client=client,  # type: ignore[arg-type]
+    )
+    assert client.created is not None
+    assert client.created["response_options"][1]["message_mode"] == expected_mode
