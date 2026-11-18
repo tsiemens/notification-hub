@@ -8834,8 +8834,12 @@ var MarkdownContent_default = /* @__PURE__ */ defineComponent({
 		});
 		function allowedUrl(value) {
 			try {
+				if (/[\u0000-\u0020\u007f\\]/.test(value)) return false;
 				const url = new URL(value);
-				return (url.protocol === "http:" || url.protocol === "https:") && !url.username && !url.password;
+				if (url.username || url.password) return false;
+				if (url.protocol === "http:" || url.protocol === "https:") return !!url.hostname;
+				if (url.protocol === "file:") return /^file:\/\//i.test(value) && (!url.hostname || url.hostname === "localhost") && url.pathname.startsWith("/");
+				return url.protocol === "mailto:" && !value.slice(7).startsWith("//") && !!(url.pathname || url.search);
 			} catch {
 				return false;
 			}
@@ -8882,7 +8886,9 @@ var MarkdownContent_default = /* @__PURE__ */ defineComponent({
 					"title",
 					"align"
 				],
-				ALLOW_DATA_ATTR: false
+				ALLOW_DATA_ATTR: false,
+				ADD_URI_SAFE_ATTR: ["align"],
+				ALLOWED_URI_REGEXP: /^(?:https?|file|mailto):/i
 			});
 			const template = document.createElement("template");
 			template.innerHTML = clean;

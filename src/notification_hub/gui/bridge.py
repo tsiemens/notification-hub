@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import base64
+import os
+import subprocess
+import sys
 import webbrowser
 from collections.abc import Callable
 from pathlib import Path
@@ -27,6 +30,17 @@ SOUND_MIME_TYPES = {
 }
 
 
+def open_external_url(url: str) -> bool:
+    """Open validated links with the system's registered application."""
+    if urlsplit(url).scheme in {"http", "https"}:
+        return webbrowser.open(url)
+    if sys.platform == "win32":
+        os.startfile(url)
+        return True
+    command = "open" if sys.platform == "darwin" else "xdg-open"
+    return subprocess.run([command, url], check=False).returncode == 0
+
+
 class GuiBridge:
     """Small JSON-compatible API exposed to the local webview."""
 
@@ -35,7 +49,7 @@ class GuiBridge:
         controller: GuiController,
         *,
         settings_store: ClientSettingsStore | None = None,
-        external_opener: Callable[[str], object] = webbrowser.open,
+        external_opener: Callable[[str], object] = open_external_url,
         sound_file_chooser: Callable[[], str | None] | None = None,
         on_updates_requested: Callable[[], None] | None = None,
     ) -> None:
@@ -184,10 +198,12 @@ class GuiBridge:
             validated = self._external_url(url)
             opened = self._external_opener(validated)
             if opened is False:
-                return self._failure("open_failed", "The system browser could not be opened.", True)
+                return self._failure("open_failed", "The link could not be opened.", True)
             return {"ok": True}
         except ValueError as exc:
             return self._error(exc)
+        except OSError:
+            return self._failure("open_failed", "The link could not be opened.", True)
 
     @staticmethod
     def _identifier(value: object, name: str) -> str:
@@ -210,19 +226,36 @@ class GuiBridge:
     def _external_url(value: object) -> str:
         if not isinstance(value, str):
             raise ValueError("url must be a string")
+        message = "url must be an absolute HTTP(S), local file, or mailto URL"
+        if any(ord(char) <= 32 or ord(char) == 127 or char == "\\" for char in value):
+            raise ValueError(message)
         try:
             parsed = urlsplit(value)
             hostname = parsed.hostname
-            _ = parsed.port
+            port = parsed.port
         except ValueError as exc:
-            raise ValueError("url must be an absolute HTTP(S) URL") from exc
-        if (
-            parsed.scheme not in {"http", "https"}
-            or not hostname
-            or parsed.username is not None
-            or parsed.password is not None
-        ):
-            raise ValueError("url must be an absolute HTTP(S) URL")
+            raise ValueError(message) from exc
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError(message)
+        if parsed.scheme in {"http", "https"}:
+            allowed = bool(hostname)
+        elif parsed.scheme == "file":
+            allowed = (
+                value.lower().startswith("file://")
+                and hostname in {None, "localhost"}
+                and port is None
+                and parsed.path.startswith("/")
+            )
+        elif parsed.scheme == "mailto":
+            allowed = (
+                not parsed.netloc
+                and not value[7:].startswith("//")
+                and bool(parsed.path or parsed.query)
+            )
+        else:
+            allowed = False
+        if not allowed:
+            raise ValueError(message)
         return value
 
     @classmethod

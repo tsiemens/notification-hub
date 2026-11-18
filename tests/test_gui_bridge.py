@@ -4,6 +4,8 @@ import base64
 import uuid
 from pathlib import Path
 
+import pytest
+
 from notification_hub.client import NetworkError, ServerError
 from notification_hub.client.models import MutationResult, parse_notification
 from notification_hub.gui.bridge import GuiBridge
@@ -179,3 +181,67 @@ def test_sound_file_selection_and_playback_path_validation(tmp_path: Path) -> No
     unsupported = tmp_path / "tone.txt"
     unsupported.write_text("tone", encoding="utf-8")
     assert bridge.resolve_sound_path(str(unsupported))["error"]["code"] == "unsupported_sound"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "file:///tmp/report%20final.pdf",
+        "file://localhost/tmp/report.pdf",
+        "mailto:ops@example.test?subject=Build%20failed",
+        "mailto:?subject=Hello",
+    ],
+)
+def test_file_and_mail_links_are_allowed(url):
+    opened = []
+    bridge = GuiBridge(StubController(), external_opener=opened.append)
+    assert bridge.open_external(url) == {"ok": True}
+    assert opened == [url]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "file://remote/tmp/report.pdf",
+        "file:relative",
+        "file://localhost:80/tmp/test",
+        "mailto://ops@example.test",
+        "mailto:",
+        "vscode:project",
+        "data:text/plain,test",
+        "https://user:password@example.test",
+        "https://example.test/\npath",
+    ],
+)
+def test_invalid_links_never_reach_opener(url):
+    opened = []
+    bridge = GuiBridge(StubController(), external_opener=opened.append)
+    assert bridge.open_external(url)["ok"] is False
+    assert opened == []
+
+
+def test_system_link_launcher_uses_argument_list(monkeypatch):
+    from types import SimpleNamespace
+
+    from notification_hub.gui import bridge as module
+
+    calls = []
+    monkeypatch.setattr(module.sys, "platform", "linux")
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda args, **kwargs: calls.append((args, kwargs)) or SimpleNamespace(returncode=0),
+    )
+    for url in ["file:///tmp/report%20final.pdf", "mailto:ops@example.test"]:
+        assert module.open_external_url(url) is True
+        assert calls[-1] == (["xdg-open", url], {"check": False})
+
+
+def test_launcher_os_error_returns_safe_failure():
+    def fail(url):
+        raise OSError("private diagnostic")
+
+    bridge = GuiBridge(StubController(), external_opener=fail)
+    result = bridge.open_external("file:///tmp/report.pdf")
+    assert result["error"]["code"] == "open_failed"
+    assert "private" not in str(result)

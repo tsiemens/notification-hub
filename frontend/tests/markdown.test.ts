@@ -77,6 +77,37 @@ describe("hardened Markdown", () => {
     expect(api.openExternal).toHaveBeenCalledTimes(2);
   });
 
+  it.each([
+    "file:///tmp/report%20final.pdf",
+    "file://localhost/tmp/report.pdf",
+    "mailto:ops@example.test?subject=Build%20failed",
+  ])("opens %s outside the webview", async (url) => {
+    const api = bridge();
+    const wrapper = mount(MarkdownContent, {
+      props: { bridge: api, label: "message", source: `[open](${url})` },
+    });
+    const link = wrapper.get("a");
+    expect(link.attributes("href")).toBeUndefined();
+    expect(link.attributes("data-external-url")).toBe(url);
+    await link.trigger("click");
+    await link.trigger("keydown", { key: "Enter" });
+    expect(api.openExternal).toHaveBeenCalledTimes(2);
+    expect(api.openExternal).toHaveBeenCalledWith(url);
+  });
+
+  it.each(["file://remote/tmp/report.pdf", "mailto://ops@example.test", "vscode:project", "data:text/plain,test", "javascript:alert(1)"])(
+    "does not activate %s", async (url) => {
+      const api = bridge();
+      const wrapper = mount(MarkdownContent, {
+        props: { bridge: api, label: "message", source: `[blocked](${url})` },
+      });
+      const link = wrapper.get("a");
+      expect(link.attributes("data-external-url")).toBeUndefined();
+      await link.trigger("click");
+      expect(api.openExternal).not.toHaveBeenCalled();
+    },
+  );
+
   it("shows hostile source as text in raw mode", async () => {
     const wrapper = mount(MarkdownContent, {
       props: { bridge: bridge(), label: "details", source: "<svg onload=alert(1)>" },

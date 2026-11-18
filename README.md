@@ -10,7 +10,9 @@ reply (if necessary) to these notifications.
 
 Notifications are given a customizable attributes so you can easily see where
 they came from (for example, from which remote server or container), from which
-tool, and include tags. They also support markdown messages and details.
+tool, and include tags. They also support markdown messages and details. Markdown links support HTTP(S),
+local files (for example, `file:///tmp/report.pdf`), and email (`mailto:ops@example.com`).
+Links open in the system browser or associated application; remote file hosts are blocked.
 
 ## Security and Caveats
 
